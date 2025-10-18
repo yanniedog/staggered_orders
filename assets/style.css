@@ -1,0 +1,307 @@
+/* Custom CSS for Interactive Ladder GUI */
+/* Dark theme with professional styling */
+
+body {
+    background-color: #1a1a1a;
+    color: #ffffff;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Header styling */
+h1, h2, h3, h4, h5, h6 {
+    color: #ffffff;
+    font-weight: 600;
+}
+
+/* Card styling */
+.card {
+    background-color: #2d2d2d;
+    border: 1px solid #444444;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.card-header {
+    background-color: #3d3d3d;
+    border-bottom: 1px solid #444444;
+    color: #ffffff;
+}
+
+.card-body {
+    background-color: #2d2d2d;
+    color: #ffffff;
+}
+
+/* Button styling */
+.btn-primary {
+    background-color: #007bff;
+    border-color: #007bff;
+    color: #ffffff;
+}
+
+.btn-primary:hover {
+    background-color: #0056b3;
+    border-color: #0056b3;
+}
+
+.btn-outline-primary {
+    color: #007bff;
+    border-color: #007bff;
+}
+
+.btn-outline-primary:hover {
+    background-color: #007bff;
+    border-color: #007bff;
+    color: #ffffff;
+}
+
+.btn-outline-secondary {
+    color: #6c757d;
+    border-color: #6c757d;
+}
+
+.btn-outline-secondary:hover {
+    background-color: #6c757d;
+    border-color: #6c757d;
+    color: #ffffff;
+}
+
+/* Input styling */
+.form-control {
+    background-color: #3d3d3d;
+    border: 1px solid #555555;
+    color: #ffffff;
+}
+
+.form-control:focus {
+    background-color: #3d3d3d;
+    border-color: #007bff;
+    color: #ffffff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* Slider styling */
+.rc-slider-track {
+    background-color: #007bff;
+}
+
+.rc-slider-handle {
+    border-color: #007bff;
+    background-color: #007bff;
+}
+
+.rc-slider-handle:hover {
+    border-color: #0056b3;
+}
+
+.rc-slider-handle:active {
+    border-color: #0056b3;
+    box-shadow: 0 0 0 5px rgba(0, 123, 255, 0.25);
+}
+
+/* Text colors */
+.text-primary {
+    color: #007bff !important;
+}
+
+.text-success {
+    color: #28a745 !important;
+}
+
+.text-info {
+    color: #17a2b8 !important;
+}
+
+.text-warning {
+    color: #ffc107 !important;
+}
+
+.text-muted {
+    color: #6c757d !important;
+}
+
+/* Loading spinner */
+.dash-spinner {
+    color: #007bff;
+}
+
+/* Chart containers */
+.dash-graph {
+    background-color: transparent;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container-fluid {
+        padding: 10px;
+    }
+    
+    .card {
+        margin-bottom: 15px;
+    }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #2d2d2d;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #555555;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #777777;
+}
+
+/* Animation for smooth transitions */
+.card, .btn, .form-control {
+    transition: all 0.3s ease;
+}
+
+/* Hover effects */
+.card:hover {
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+    transform: translateY(-2px);
+}
+
+/* Focus states */
+.btn:focus, .form-control:focus {
+    outline: none;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* Status indicators */
+.status-indicator {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.status-success {
+    background-color: #28a745;
+}
+
+.status-warning {
+    background-color: #ffc107;
+}
+
+.status-danger {
+    background-color: #dc3545;
+}
+
+/* Tooltip styling */
+.tooltip {
+    background-color: #2d2d2d;
+    border: 1px solid #444444;
+    color: #ffffff;
+}
+
+/* Modal styling */
+.modal-content {
+    background-color: #2d2d2d;
+    border: 1px solid #444444;
+}
+
+.modal-header {
+    border-bottom: 1px solid #444444;
+}
+
+.modal-footer {
+    border-top: 1px solid #444444;
+}
+
+/* Alert styling */
+.alert {
+    border-radius: 6px;
+}
+
+.alert-success {
+    background-color: rgba(40, 167, 69, 0.2);
+    border-color: #28a745;
+    color: #28a745;
+}
+
+.alert-warning {
+    background-color: rgba(255, 193, 7, 0.2);
+    border-color: #ffc107;
+    color: #ffc107;
+}
+
+.alert-danger {
+    background-color: rgba(220, 53, 69, 0.2);
+    border-color: #dc3545;
+    color: #dc3545;
+}
+
+/* Progress bar styling */
+.progress {
+    background-color: #3d3d3d;
+}
+
+.progress-bar {
+    background-color: #007bff;
+}
+
+/* Badge styling */
+.badge {
+    background-color: #007bff;
+    color: #ffffff;
+}
+
+/* Table styling */
+.table {
+    color: #ffffff;
+}
+
+.table-dark {
+    background-color: #2d2d2d;
+}
+
+.table-dark th,
+.table-dark td {
+    border-color: #444444;
+}
+
+/* Custom utility classes */
+.bg-dark-custom {
+    background-color: #1a1a1a !important;
+}
+
+.bg-card {
+    background-color: #2d2d2d !important;
+}
+
+.border-custom {
+    border-color: #444444 !important;
+}
+
+/* Animation keyframes */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+/* Print styles */
+@media print {
+    body {
+        background-color: white;
+        color: black;
+    }
+    
+    .card {
+        background-color: white;
+        border: 1px solid black;
+    }
+}
