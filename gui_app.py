@@ -84,20 +84,6 @@ class InteractiveLadderGUI:
                     'boxShadow': '0 2px 4px rgba(0,0,0,0.3)'
                 }),
                 
-                # Precalculation Status Indicator
-                html.Div([
-                    html.Div(id='precalc-status', 
-                            style={'color': '#28a745', 'fontSize': '12px', 'textAlign': 'center', 
-                                   'padding': '5px', 'backgroundColor': '#1a1a1a', 'borderRadius': '0 0 8px 8px'})
-                ], style={'marginBottom': '10px'}),
-                
-                # Hidden interval component for precalc status updates
-                dcc.Interval(
-                    id='precalc-interval',
-                    interval=2000,  # Update every 2 seconds
-                    n_intervals=0
-                ),
-                
                 self.create_control_panel()
             ], style={
                 'position': 'fixed',
@@ -120,8 +106,20 @@ class InteractiveLadderGUI:
                     html.H1("Interactive Staggered Order Ladder", 
                            style={'textAlign': 'center', 'color': '#007bff', 'marginBottom': '20px'}),
                     html.P("Real-time visualization and analysis of order ladder configurations",
-                          style={'textAlign': 'center', 'color': '#6c757d', 'marginBottom': '30px'})
-                ], style={'padding': '20px', 'backgroundColor': '#1a1a1a', 'borderBottom': '2px solid #444444', 'marginBottom': '20px'}),
+                          style={'textAlign': 'center', 'color': '#6c757d', 'marginBottom': '30px'}),
+                    
+                    # Status indicators in top right
+                    html.Div([
+                        html.Div(id='precalc-status', 
+                                style={'color': '#28a745', 'fontSize': '12px', 'textAlign': 'right', 
+                                       'padding': '5px', 'backgroundColor': '#2d2d2d', 'borderRadius': '4px',
+                                       'marginBottom': '5px'}),
+                        html.Div(id='user-request-status', 
+                                style={'color': '#ffc107', 'fontSize': '12px', 'textAlign': 'right', 
+                                       'padding': '5px', 'backgroundColor': '#2d2d2d', 'borderRadius': '4px',
+                                       'display': 'none'})  # Hidden by default
+                    ], style={'position': 'absolute', 'top': '20px', 'right': '20px', 'width': '300px'})
+                ], style={'padding': '20px', 'backgroundColor': '#1a1a1a', 'borderBottom': '2px solid #444444', 'marginBottom': '20px', 'position': 'relative'}),
                 
                 # Visualization content
                 self.create_visualization_area()
@@ -134,6 +132,13 @@ class InteractiveLadderGUI:
                 'backgroundColor': '#1a1a1a'
             }),
             
+            # Hidden interval component for status updates
+            dcc.Interval(
+                id='precalc-interval',
+                interval=2000,  # Update every 2 seconds
+                n_intervals=0
+            ),
+
             # Loading overlay
             dcc.Loading(
                 id="loading",
@@ -233,20 +238,7 @@ class InteractiveLadderGUI:
                     html.Label("Quantity Distribution Method", style={'fontWeight': 'bold', 'color': '#ffffff'}),
                     dcc.Dropdown(
                         id='quantity-distribution-dropdown',
-                        options=[
-                            {'label': 'Kelly-Optimized (Recommended)', 'value': 'kelly_optimized'},
-                            {'label': 'Adaptive Kelly', 'value': 'adaptive_kelly'},
-                            {'label': 'Volatility-Weighted', 'value': 'volatility_weighted'},
-                            {'label': 'Sharpe-Maximizing', 'value': 'sharpe_maximizing'},
-                            {'label': 'Fibonacci-Weighted', 'value': 'fibonacci_weighted'},
-                            {'label': 'Risk-Parity', 'value': 'risk_parity'},
-                            {'label': 'Price-Weighted', 'value': 'price_weighted'},
-                            {'label': 'Equal Notional', 'value': 'equal_notional'},
-                            {'label': 'Equal Quantity', 'value': 'equal_quantity'},
-                            {'label': 'Linear Increase', 'value': 'linear_increase'},
-                            {'label': 'Exponential Increase', 'value': 'exponential_increase'},
-                            {'label': 'Probability-Weighted', 'value': 'probability_weighted'}
-                        ],
+                        options=self.get_sorted_quantity_options(),
                         value='kelly_optimized',
                         style={'width': '100%', 'marginBottom': '10px', 'borderRadius': '4px'},
                         className='dark-dropdown'
@@ -262,20 +254,7 @@ class InteractiveLadderGUI:
                     html.Label("Rung Positioning Method", style={'fontWeight': 'bold', 'color': '#ffffff'}),
                     dcc.Dropdown(
                         id='rung-positioning-dropdown',
-                        options=[
-                            {'label': 'Linear Spacing (Recommended)', 'value': 'linear'},
-                            {'label': 'Support/Resistance Clustering', 'value': 'support_resistance'},
-                            {'label': 'Volume Profile Weighted', 'value': 'volume_profile'},
-                            {'label': 'Touch Pattern Analysis', 'value': 'touch_pattern'},
-                            {'label': 'Adaptive Probability', 'value': 'adaptive_probability'},
-                            {'label': 'Expected Value Optimization', 'value': 'expected_value'},
-                            {'label': 'Quantile-Based', 'value': 'quantile'},
-                            {'label': 'Risk-Weighted', 'value': 'risk_weighted'},
-                            {'label': 'Exponential Spacing', 'value': 'exponential'},
-                            {'label': 'Logarithmic Spacing', 'value': 'logarithmic'},
-                            {'label': 'Fibonacci Levels', 'value': 'fibonacci'},
-                            {'label': 'Dynamic Density', 'value': 'dynamic_density'}
-                        ],
+                        options=self.get_sorted_positioning_options(),
                         value='linear',
                         style={'width': '100%', 'marginBottom': '10px', 'borderRadius': '4px'},
                         className='dark-dropdown'
@@ -376,59 +355,7 @@ class InteractiveLadderGUI:
                     dcc.Dropdown(
                         id='crypto-dropdown',
                         className='dark-dropdown',
-                        options=[
-                            {'label': 'Bitcoin (BTC)', 'value': 'BTCUSDT'},
-                            {'label': 'Ethereum (ETH)', 'value': 'ETHUSDT'},
-                            {'label': 'Solana (SOL)', 'value': 'SOLUSDT'},
-                            {'label': 'Cardano (ADA)', 'value': 'ADAUSDT'},
-                            {'label': 'Polygon (MATIC)', 'value': 'MATICUSDT'},
-                            {'label': 'Chainlink (LINK)', 'value': 'LINKUSDT'},
-                            {'label': 'Polkadot (DOT)', 'value': 'DOTUSDT'},
-                            {'label': 'Avalanche (AVAX)', 'value': 'AVAXUSDT'},
-                            {'label': 'Cosmos (ATOM)', 'value': 'ATOMUSDT'},
-                            {'label': 'Algorand (ALGO)', 'value': 'ALGOUSDT'},
-                            {'label': 'VeChain (VET)', 'value': 'VETUSDT'},
-                            {'label': 'Hedera (HBAR)', 'value': 'HBARUSDT'},
-                            {'label': 'Internet Computer (ICP)', 'value': 'ICPUSDT'},
-                            {'label': 'Theta (THETA)', 'value': 'THETAUSDT'},
-                            {'label': 'Fantom (FTM)', 'value': 'FTMUSDT'},
-                            {'label': 'Harmony (ONE)', 'value': 'ONEUSDT'},
-                            {'label': 'Near Protocol (NEAR)', 'value': 'NEARUSDT'},
-                            {'label': 'Flow (FLOW)', 'value': 'FLOWUSDT'},
-                            {'label': 'Helium (HNT)', 'value': 'HNTUSDT'},
-                            {'label': 'Arweave (AR)', 'value': 'ARUSDT'},
-                            {'label': 'The Graph (GRT)', 'value': 'GRTUSDT'},
-                            {'label': '0x (ZRX)', 'value': 'ZRXUSDT'},
-                            {'label': 'Basic Attention Token (BAT)', 'value': 'BATUSDT'},
-                            {'label': 'Enjin Coin (ENJ)', 'value': 'ENJUSDT'},
-                            {'label': 'Decentraland (MANA)', 'value': 'MANAUSDT'},
-                            {'label': 'Sandbox (SAND)', 'value': 'SANDUSDT'},
-                            {'label': 'ApeCoin (APE)', 'value': 'APEUSDT'},
-                            {'label': 'Immutable X (IMX)', 'value': 'IMXUSDT'},
-                            {'label': 'Loopring (LRC)', 'value': 'LRCUSDT'},
-                            {'label': '1inch (1INCH)', 'value': '1INCHUSDT'},
-                            {'label': 'SushiSwap (SUSHI)', 'value': 'SUSHIUSDT'},
-                            {'label': 'Uniswap (UNI)', 'value': 'UNIUSDT'},
-                            {'label': 'PancakeSwap (CAKE)', 'value': 'CAKEUSDT'},
-                            {'label': 'Compound (COMP)', 'value': 'COMPUSDT'},
-                            {'label': 'Maker (MKR)', 'value': 'MKRUSDT'},
-                            {'label': 'Aave (AAVE)', 'value': 'AAVEUSDT'},
-                            {'label': 'Yearn Finance (YFI)', 'value': 'YFIUSDT'},
-                            {'label': 'Curve DAO Token (CRV)', 'value': 'CRVUSDT'},
-                            {'label': 'Synthetix (SNX)', 'value': 'SNXUSDT'},
-                            {'label': 'Balancer (BAL)', 'value': 'BALUSDT'},
-                            {'label': 'Ren (REN)', 'value': 'RENUSDT'},
-                            {'label': 'Ocean Protocol (OCEAN)', 'value': 'OCEANUSDT'},
-                            {'label': 'Storj (STORJ)', 'value': 'STORJUSDT'},
-                            {'label': 'Livepeer (LPT)', 'value': 'LPTUSDT'},
-                            {'label': 'Ankr (ANKR)', 'value': 'ANKRUSDT'},
-                            {'label': 'Fetch.ai (FET)', 'value': 'FETUSDT'},
-                            {'label': 'SingularityNET (AGIX)', 'value': 'AGIXUSDT'},
-                            {'label': 'OriginTrail (TRAC)', 'value': 'TRACUSDT'},
-                            {'label': 'Numeraire (NMR)', 'value': 'NMRUSDT'},
-                            {'label': 'PAX Gold (PAXG)', 'value': 'PAXGUSDT'},
-                            {'label': 'Tether Gold (XAUT)', 'value': 'XAUTUSDT'}
-                        ],
+                        options=self.get_sorted_crypto_options(),
                         value='SOLUSDT',
                         style={'width': '100%', 'marginBottom': '10px', 'borderRadius': '4px'}
                     ),
@@ -764,6 +691,51 @@ class InteractiveLadderGUI:
         def update_precalc_status(n_intervals):
             return self.get_precalc_status()
 
+        # User Request Status Callback
+        @self.app.callback(
+            Output('user-request-status', 'children'),
+            [Input('aggression-slider', 'value'),
+             Input('rungs-slider', 'value'),
+             Input('timeframe-slider', 'value'),
+             Input('budget-input', 'value'),
+             Input('quantity-distribution-dropdown', 'value'),
+             Input('crypto-dropdown', 'value'),
+             Input('rung-positioning-dropdown', 'value')]
+        )
+        def update_user_request_status(aggression, rungs, timeframe, budget, qty_method, crypto, pos_method):
+            # Show processing status when any parameter changes
+            if any([aggression, rungs, timeframe, budget, qty_method, crypto, pos_method]):
+                return "🔄 Processing your request..."
+            return "✓ Ready"
+
+        # User Request Status Visibility Callback (triggered by calculation callback)
+        @self.app.callback(
+            Output('user-request-status', 'style'),
+            [Input('ladder-configuration-chart', 'figure'),
+             Input('touch-probability-curves', 'figure'),
+             Input('rung-touch-probabilities', 'figure'),
+             Input('historical-touch-frequency', 'figure'),
+             Input('profit-distribution', 'figure'),
+             Input('risk-return-profile', 'figure'),
+             Input('touch-vs-time', 'figure'),
+             Input('allocation-distribution', 'figure'),
+             Input('fit-quality-dashboard', 'figure')]
+        )
+        def update_user_request_visibility(*figures):
+            # Show processing status when figures are being updated (indicates calculation in progress)
+            return {'color': '#ffc107', 'fontSize': '12px', 'textAlign': 'right',
+                   'padding': '5px', 'backgroundColor': '#2d2d2d', 'borderRadius': '4px',
+                   'display': 'block', 'animation': 'pulse 1s infinite'}
+
+        # Hide User Request Status when calculation completes
+        @self.app.callback(
+            Output('user-request-status', 'style'),
+            [Input('calculation-cache', 'data')]
+        )
+        def hide_user_request_status(cache_data):
+            # Hide status when cache is updated (calculation complete)
+            return {'display': 'none'}
+
     
     def update_all_visualizations(self, aggression_level, num_rungs, timeframe_hours,
                                  budget, quantity_distribution, crypto_symbol, rung_positioning,
@@ -836,6 +808,9 @@ class InteractiveLadderGUI:
             
             # Resume precalculation after user request
             self.resume_precalculation()
+
+            # Trigger status update to hide processing indicator
+            from dash import no_update
             return (*figures, *kpis.values(), buy_table, sell_table, cache_data)
             
         except Exception as e:
