@@ -4,13 +4,7 @@ Consolidates buy and sell ladder depth calculations into a single bidirectional 
 """
 import numpy as np
 from typing import Tuple
-import yaml
-
-
-def load_config() -> dict:
-    """Load configuration from config.yaml"""
-    with open('config.yaml', 'r') as f:
-        return yaml.safe_load(f)
+from config import load_config
 
 
 def weibull_cdf(depth: float, theta: float, p: float) -> float:
@@ -48,33 +42,11 @@ def weibull_quantile(quantile: float, theta: float, p: float) -> float:
     return theta * (-np.log(1 - quantile)) ** (1 / p)
 
 
-def calculate_depth_range(theta: float, p: float, 
-                        u_min: float, p_min: float) -> Tuple[float, float]:
-    """
-    Calculate minimum and maximum depths for the ladder.
-    
-    Args:
-        theta: Weibull scale parameter
-        p: Weibull shape parameter
-        u_min: Top rung quantile (0-1)
-        p_min: Bottom rung tail probability (0-1)
-    
-    Returns:
-        Tuple of (d_min, d_max)
-    """
-    # Top rung: quantile of the fitted distribution
+def calculate_depth_range(theta: float, p: float, u_min: float, p_min: float) -> Tuple[float, float]:
+    """Calculate minimum and maximum depths for the ladder"""
     d_min = weibull_quantile(u_min, theta, p)
-    
-    # Bottom rung: depth where probability = p_min
-    # q(d_max) = p_min = exp(-(d_max/theta)^p)
-    # d_max = theta * (-ln(p_min))^(1/p)
     d_max = theta * (-np.log(p_min)) ** (1 / p)
-    
-    print(f"Depth range calculation:")
-    print(f"  d_min (top rung): {d_min:.3f}% (quantile {u_min:.2f})")
-    print(f"  d_max (bottom rung): {d_max:.3f}% (tail prob {p_min:.3f})")
-    print(f"  Range: {d_max - d_min:.3f}%")
-    
+    print(f"Depth range: {d_min:.3f}% - {d_max:.3f}%")
     return d_min, d_max
 
 
@@ -157,36 +129,12 @@ def calculate_expected_value_depths(theta: float, p: float, d_min: float, d_max:
     return selected_depths
 
 
-def generate_ladder_depths(theta: float, p: float, 
-                          d_min: float, d_max: float, 
-                          num_rungs: int) -> np.ndarray:
-    """
-    Generate ladder depths using quantile spacing.
-    
-    Args:
-        theta: Weibull scale parameter
-        p: Weibull shape parameter
-        d_min: Minimum depth
-        d_max: Maximum depth
-        num_rungs: Number of rungs
-    
-    Returns:
-        Array of ladder depths
-    """
-    # Convert depths to quantiles
-    q_min = weibull_cdf(d_min, theta, p)
-    q_max = weibull_cdf(d_max, theta, p)
-    
-    # Generate quantiles evenly spaced between q_min and q_max
+def generate_ladder_depths(theta: float, p: float, d_min: float, d_max: float, num_rungs: int) -> np.ndarray:
+    """Generate ladder depths using quantile spacing"""
+    q_min, q_max = weibull_cdf(d_min, theta, p), weibull_cdf(d_max, theta, p)
     quantiles = np.linspace(q_min, q_max, num_rungs)
-    
-    # Convert quantiles back to depths
     depths = np.array([weibull_quantile(q, theta, p) for q in quantiles])
-    
-    print(f"Generated {num_rungs} ladder depths:")
-    print(f"  Quantile range: {q_min:.3f} - {q_max:.3f}")
-    print(f"  Depth range: {depths[0]:.3f}% - {depths[-1]:.3f}%")
-    
+    print(f"Generated {num_rungs} depths: {depths[0]:.3f}% - {depths[-1]:.3f}%")
     return depths
 
 
@@ -334,71 +282,21 @@ def calculate_probability_optimized_targets(buy_depths: np.ndarray, theta_sell: 
     return sell_depths, profit_targets
 
 
-def generate_exponential_depths(theta: float, p: float, d_min: float, d_max: float,
-                               num_rungs: int) -> np.ndarray:
-    """
-    Generate ladder depths using exponential spacing.
-
-    Args:
-        theta: Weibull scale parameter
-        p: Weibull shape parameter
-        d_min: Minimum depth
-        d_max: Maximum depth
-        num_rungs: Number of rungs
-
-    Returns:
-        Array of ladder depths with exponential spacing
-    """
-    # Convert depths to quantiles
-    q_min = weibull_cdf(d_min, theta, p)
-    q_max = weibull_cdf(d_max, theta, p)
-
-    # Generate exponentially spaced quantiles (more points near higher probabilities)
-    # Use exponential decay from high to low quantiles
-    exponents = np.linspace(0, 1, num_rungs)
-    quantiles = q_min + (q_max - q_min) * (1 - np.exp(-3 * exponents))  # Exponential growth from low to high
-
-    # Convert quantiles back to depths and sort
-    depths = np.array([weibull_quantile(q, theta, p) for q in quantiles])
-    depths = np.sort(depths)  # Ensure monotonically increasing
-
-    print(f"Generated {num_rungs} exponentially spaced depths:")
-    print(f"  Quantile range: {q_min:.3f} - {q_max:.3f}")
-    print(f"  Depth range: {depths[0]:.3f}% - {depths[-1]:.3f}%")
-
-    return depths
-
-
-def generate_logarithmic_depths(theta: float, p: float, d_min: float, d_max: float,
-                               num_rungs: int) -> np.ndarray:
-    """
-    Generate ladder depths using logarithmic spacing.
-
-    Args:
-        theta: Weibull scale parameter
-        p: Weibull shape parameter
-        d_min: Minimum depth
-        d_max: Maximum depth
-        num_rungs: Number of rungs
-
-    Returns:
-        Array of ladder depths with logarithmic spacing
-    """
-    # Convert depths to quantiles
-    q_min = weibull_cdf(d_min, theta, p)
-    q_max = weibull_cdf(d_max, theta, p)
-
-    # Generate logarithmically spaced quantiles (more points near lower depths)
-    # Use log spacing from low to high quantiles
-    log_space = np.logspace(np.log10(q_min + 0.001), np.log10(q_max), num_rungs)
-
-    # Convert quantiles back to depths
-    depths = np.array([weibull_quantile(q, theta, p) for q in log_space])
-
-    print(f"Generated {num_rungs} logarithmically spaced depths:")
-    print(f"  Quantile range: {q_min:.3f} - {q_max:.3f}")
-    print(f"  Depth range: {depths[0]:.3f}% - {depths[-1]:.3f}%")
-
+def _generate_spaced_depths(theta: float, p: float, d_min: float, d_max: float,
+                           num_rungs: int, spacing_type: str) -> np.ndarray:
+    """Generate depths with specified spacing type (exponential/logarithmic)"""
+    q_min, q_max = weibull_cdf(d_min, theta, p), weibull_cdf(d_max, theta, p)
+    
+    if spacing_type == 'exponential':
+        exponents = np.linspace(0, 1, num_rungs)
+        quantiles = q_min + (q_max - q_min) * (1 - np.exp(-3 * exponents))
+    elif spacing_type == 'logarithmic':
+        quantiles = np.logspace(np.log10(q_min + 0.001), np.log10(q_max), num_rungs)
+    else:
+        raise ValueError(f"Unknown spacing type: {spacing_type}")
+    
+    depths = np.sort(np.array([weibull_quantile(q, theta, p) for q in quantiles]))
+    print(f"Generated {num_rungs} {spacing_type} depths: {depths[0]:.3f}% - {depths[-1]:.3f}%")
     return depths
 
 
@@ -522,10 +420,8 @@ def calculate_ladder_depths(theta: float, p: float, num_rungs: int = None,
     elif method == 'linear':
         depths = np.linspace(d_min, d_max, num_rungs)
         print(f"Generated {num_rungs} linearly spaced {direction} depths")
-    elif method == 'exponential':
-        depths = generate_exponential_depths(theta, p, d_min, d_max, num_rungs)
-    elif method == 'logarithmic':
-        depths = generate_logarithmic_depths(theta, p, d_min, d_max, num_rungs)
+    elif method in ['exponential', 'logarithmic']:
+        depths = _generate_spaced_depths(theta, p, d_min, d_max, num_rungs, method)
     elif method == 'risk_weighted':
         if current_price is None:
             print("Warning: current_price required for risk_weighted method, falling back to quantile")
@@ -617,78 +513,23 @@ def calculate_sell_ladder_depths(theta_sell: float, p_sell: float,
 
 
 def validate_ladder_depths(depths: np.ndarray, direction: str = 'buy') -> bool:
-    """
-    Validate that ladder depths are reasonable.
-    
-    Args:
-        depths: Array of ladder depths
-        direction: 'buy' or 'sell' for context
-    
-    Returns:
-        True if depths are valid
-    """
-    # Check monotonicity
+    """Validate that ladder depths are reasonable"""
     if not np.all(np.diff(depths) > 0):
-        raise ValueError(f"{direction.capitalize()} ladder depths must be monotonically increasing")
+        raise ValueError(f"{direction.capitalize()} depths must be monotonically increasing")
     
-    # Check reasonable range
-    if depths[0] < 0.1:
-        print(f"Warning: Top {direction} rung very shallow ({depths[0]:.3f}%)")
-    
-    if depths[-1] > 50.0:
-        print(f"Warning: Bottom {direction} rung very deep ({depths[-1]:.3f}%)")
-    
-    # Check spacing
     min_spacing = np.min(np.diff(depths))
-    if min_spacing < 0.05:
-        print(f"Warning: Very tight {direction} spacing ({min_spacing:.3f}%)")
-    
-    print(f"{direction.capitalize()} ladder validation passed:")
-    print(f"  {len(depths)} rungs")
-    print(f"  Spacing: {min_spacing:.3f}% - {np.max(np.diff(depths)):.3f}%")
-    
+    print(f"{direction.capitalize()} ladder OK: {len(depths)} rungs, spacing {min_spacing:.3f}% - {np.max(np.diff(depths)):.3f}%")
     return True
 
 
 def validate_sell_ladder_depths(sell_depths: np.ndarray, profit_targets: np.ndarray) -> bool:
-    """
-    Validate that sell ladder depths and profit targets are reasonable.
-    
-    Args:
-        sell_depths: Array of sell depths
-        profit_targets: Array of profit targets
-    
-    Returns:
-        True if depths are valid
-    """
-    # Check monotonicity
+    """Validate that sell ladder depths and profit targets are reasonable"""
     if not np.all(np.diff(sell_depths) > 0):
-        raise ValueError("Sell ladder depths must be monotonically increasing")
-    
-    # Check reasonable range
-    if sell_depths[0] < 0.1:
-        print(f"Warning: Top sell rung very shallow ({sell_depths[0]:.3f}%)")
-    
-    if sell_depths[-1] > 50.0:
-        print(f"Warning: Bottom sell rung very deep ({sell_depths[-1]:.3f}%)")
-    
-    # Check spacing
-    min_spacing = np.min(np.diff(sell_depths))
-    if min_spacing < 0.05:
-        print(f"Warning: Very tight sell spacing ({min_spacing:.3f}%)")
-    
-    # Check profit targets
+        raise ValueError("Sell depths must be monotonically increasing")
     if np.any(profit_targets <= 0):
         raise ValueError("All profit targets must be positive")
     
-    if np.any(profit_targets > 50.0):
-        print(f"Warning: Very high profit targets (max: {np.max(profit_targets):.2f}%)")
-    
-    print(f"Sell ladder validation passed:")
-    print(f"  {len(sell_depths)} sell rungs")
-    print(f"  Spacing: {min_spacing:.3f}% - {np.max(np.diff(sell_depths)):.3f}%")
-    print(f"  Profit targets: {np.min(profit_targets):.2f}% - {np.max(profit_targets):.2f}%")
-    
+    print(f"Sell ladder OK: {len(sell_depths)} rungs, profit {np.min(profit_targets):.2f}% - {np.max(profit_targets):.2f}%")
     return True
 
 

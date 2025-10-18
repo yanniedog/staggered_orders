@@ -6,16 +6,10 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import os
-import yaml
 import time
 import functools
 from typing import Tuple, Optional, Callable, Any
-
-
-def load_config() -> dict:
-    """Load configuration from config.yaml"""
-    with open('config.yaml', 'r') as f:
-        return yaml.safe_load(f)
+from config import load_config
 
 
 def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0, 
@@ -64,105 +58,57 @@ def _make_api_request(url: str, params: dict, timeout: int = 30) -> dict:
 
 
 def fetch_klines(symbol: str, interval: str, start_time: int, end_time: int) -> pd.DataFrame:
-    """
-    Fetch kline data from Binance API with optimized pagination.
+    """Fetch kline data from Binance API with optimized pagination"""
+    if end_time <= start_time:
+        raise ValueError(f"Invalid time range: start_time={start_time}, end_time={end_time}")
     
-    Args:
-        symbol: Trading pair (e.g., 'SOLUSDT')
-        interval: Kline interval (e.g., '1h')
-        start_time: Start timestamp in milliseconds
-        end_time: End timestamp in milliseconds
-    
-    Returns:
-        DataFrame with OHLCV data
-    """
     url = "https://api.binance.com/api/v3/klines"
     all_data = []
     current_start = start_time
     batch_count = 0
     
-    print(f"Fetching {symbol} data in batches...")
-    
-    # Calculate batch parameters
-    interval_ms = {'1h': 60*60*1000, '1m': 60*1000, '1d': 24*60*60*1000}.get(interval, 60*60*1000)
-    candles_per_batch = 1000
-    expected_batches = int(np.ceil((end_time - start_time) / (candles_per_batch * interval_ms)))
-    print(f"Expected batches: ~{expected_batches}")
-    
-    # Validate time range
-    if end_time <= start_time:
-        raise ValueError(f"Invalid time range: start_time={start_time}, end_time={end_time}")
-    
-    consecutive_failures = 0
-    max_consecutive_failures = 5
+    print(f"Fetching {symbol} data...")
     
     while current_start < end_time:
         batch_count += 1
         if batch_count % 10 == 0:
-            progress_pct = min(100, (batch_count / expected_batches) * 100)
-            print(f"  Batch {batch_count}/{expected_batches} ({progress_pct:.1f}%)...")
+            print(f"  Batch {batch_count}...")
         
-        params = {
-            'symbol': symbol,
-            'interval': interval,
-            'startTime': current_start,
-            'endTime': end_time,
-            'limit': 1000
-        }
+        params = {'symbol': symbol, 'interval': interval, 'startTime': current_start, 'endTime': end_time, 'limit': 1000}
         
         try:
             klines = _make_api_request(url, params)
-            
-            if not isinstance(klines, list):
-                raise ValueError(f"Invalid response format: expected list, got {type(klines)}")
-            
-            if not klines:
-                print(f"  No data returned for batch {batch_count}, stopping")
+            if not klines or not isinstance(klines, list):
                 break
             
-            if len(klines[0]) != 12:
-                raise ValueError(f"Invalid kline format: expected 12 fields, got {len(klines[0])}")
-            
             all_data.extend(klines)
-            current_start = klines[-1][6] + 1  # Close time + 1ms
-            consecutive_failures = 0
-            
-            time.sleep(0.1)  # Rate limiting
-            
+            current_start = klines[-1][6] + 1
+            time.sleep(0.1)
         except Exception as e:
-            consecutive_failures += 1
-            if consecutive_failures >= max_consecutive_failures:
-                print(f"Error: {consecutive_failures} consecutive failures")
-                raise
-            print(f"Error fetching batch {batch_count}: {e}")
+            print(f"Error: {e}")
             raise
     
     if not all_data:
-        raise ValueError("No data retrieved from Binance API")
+        raise ValueError("No data retrieved")
     
     print(f"Fetched {len(all_data)} candles in {batch_count} batches")
     
     # Convert to DataFrame
-    df = pd.DataFrame(all_data, columns=[
-        'open_time', 'open', 'high', 'low', 'close', 'volume',
-        'close_time', 'quote_volume', 'trades', 'taker_buy_base',
-        'taker_buy_quote', 'ignore'
-    ])
+    df = pd.DataFrame(all_data, columns=['open_time', 'open', 'high', 'low', 'close', 'volume',
+                                         'close_time', 'quote_volume', 'trades', 'taker_buy_base',
+                                         'taker_buy_quote', 'ignore'])
     
-    # Convert to proper types
     df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
     df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
-    
     for col in ['open', 'high', 'low', 'close', 'volume']:
         df[col] = pd.to_numeric(df[col], errors='coerce')
     
     # Clean data
     df = df.dropna(subset=['open', 'high', 'low', 'close', 'volume'])
-    invalid_rows = (df['high'] < df['low']) | (df['open'] <= 0) | (df['close'] <= 0)
-    df = df[~invalid_rows]
+    df = df[~((df['high'] < df['low']) | (df['open'] <= 0) | (df['close'] <= 0))]
     
     if len(df) == 0:
-        raise ValueError("No valid data remaining after cleaning")
+        raise ValueError("No valid data after cleaning")
     
     return df[['open_time', 'open', 'high', 'low', 'close', 'volume']]
 
@@ -174,11 +120,7 @@ def get_cache_filename(symbol: str, interval: str, lookback_days: int) -> str:
 
 def is_cache_valid(filename: str, max_age_hours: int) -> bool:
     """Check if cached data is still valid"""
-    if not os.path.exists(filename):
-        return False
-    
-    file_age = datetime.now() - datetime.fromtimestamp(os.path.getmtime(filename))
-    return file_age.total_seconds() / 3600 < max_age_hours
+    return os.path.exists(filename) and (datetime.now() - datetime.fromtimestamp(os.path.getmtime(filename))).total_seconds() / 3600 < max_age_hours
 
 
 def fetch_solusdt_data(interval: str = '1h', lookback_days: int = None, force_refresh: bool = False) -> pd.DataFrame:
@@ -275,33 +217,16 @@ def fetch_solusdt_data(interval: str = '1h', lookback_days: int = None, force_re
 
 @retry_with_backoff(max_retries=3, base_delay=1.0, exceptions=(requests.exceptions.RequestException,))
 def get_current_price(symbol: str = 'SOLUSDT') -> float:
-    """Get current cryptocurrency price from Binance.
-
-    Args:
-        symbol: Trading pair symbol (e.g., 'BTCUSDT', 'ETHUSDT', 'SOLUSDT')
-
-    Returns:
-        Current price as float
-    """
-    url = "https://api.binance.com/api/v3/ticker/price"
-    params = {'symbol': symbol}
-
-    data = _make_api_request(url, params, timeout=10)
-
-    if 'price' not in data:
-        raise ValueError(f"Invalid response format: missing 'price' field")
-
-    price = float(data['price'])
+    """Get current cryptocurrency price from Binance"""
+    data = _make_api_request("https://api.binance.com/api/v3/ticker/price", {'symbol': symbol}, timeout=10)
     
-    if price <= 0:
+    if 'price' not in data:
+        raise ValueError("Invalid response: missing 'price'")
+    
+    price = float(data['price'])
+    if price <= 0 or (symbol in ['BTCUSDT', 'ETHUSDT'] and price > 100000) or (symbol not in ['BTCUSDT', 'ETHUSDT'] and price > 10000):
         raise ValueError(f"Invalid price: {price}")
-
-    # Different cryptocurrencies have different typical price ranges
-    if symbol in ['BTCUSDT', 'ETHUSDT'] and price > 100000:
-        raise ValueError(f"Price seems unreasonably high for {symbol}: {price}")
-    elif symbol not in ['BTCUSDT', 'ETHUSDT'] and price > 10000:
-        raise ValueError(f"Price seems unreasonably high for {symbol}: {price}")
-
+    
     print(f"Current {symbol} price: ${price:.2f}")
     return price
 

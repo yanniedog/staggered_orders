@@ -7,6 +7,7 @@ import numpy as np
 from typing import Dict, List, Tuple, Optional
 import warnings
 from data_manager import data_manager
+from utils import depth_to_price, price_to_depth, get_price_levels
 
 warnings.filterwarnings('ignore')
 
@@ -303,18 +304,6 @@ class HistoricalAnalyzer:
                 'timeframe_hours': timeframe_hours,
                 'timeframe_days': timeframe_hours / 24
             }
-    
-    def depth_to_price(self, depth: float, current_price: float) -> float:
-        """Convert depth percentage to actual price"""
-        return current_price * (1 - depth / 100)
-    
-    def price_to_depth(self, price: float, current_price: float) -> float:
-        """Convert actual price to depth percentage"""
-        return (current_price - price) / current_price * 100
-    
-    def get_price_levels(self, depths: np.ndarray, current_price: float) -> np.ndarray:
-        """Convert array of depths to price levels"""
-        return current_price * (1 - depths / 100)
     
     def clear_cache(self):
         """Clear analysis cache"""

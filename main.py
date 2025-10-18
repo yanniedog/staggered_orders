@@ -2,7 +2,6 @@
 Simplified main orchestrator for the staggered order ladder system.
 Consolidated imports and streamlined orchestration logic.
 """
-import yaml
 from typing import Dict
 import pandas as pd
 import numpy as np
@@ -11,6 +10,7 @@ import warnings
 import os
 
 # Import consolidated modules
+from config import load_config
 from data_fetcher import fetch_solusdt_data, get_current_price
 from touch_analysis import analyze_touch_probabilities, analyze_upward_touch_probabilities
 from weibull_fit import fit_weibull_tail, validate_fit_quality
@@ -21,19 +21,6 @@ from output import create_all_visualizations, create_excel_workbook
 from analysis import analyze_profit_scenarios, get_optimal_scenario, analyze_rung_sensitivity, analyze_depth_sensitivity, analyze_combined_sensitivity, create_all_scenario_visualizations
 from validation import validate_analysis_results
 from logger import LoggingContext
-
-
-def load_config() -> dict:
-    """Load configuration from config.yaml"""
-    try:
-        with open('config.yaml', 'r') as f:
-            return yaml.safe_load(f)
-    except FileNotFoundError:
-        print("Error: config.yaml not found. Please create the configuration file.")
-        raise
-    except yaml.YAMLError as e:
-        print(f"Error parsing config.yaml: {e}")
-        raise
 
 
 def cleanup_output_directory():
@@ -67,90 +54,29 @@ def cleanup_output_directory():
     print()
 
 
-def print_banner():
-    """Print system banner"""
-    print("=" * 60)
-    print("    STAGGERED ORDER LADDER SYSTEM")
-    print("    Data-Driven SOLUSDT Wick Capture (1h)")
-    print("=" * 60)
-    print()
-
-
-def print_summary(config: dict, theta: float, p: float, fit_metrics: dict,
-                 depths: np.ndarray, allocations: np.ndarray, paired_orders_df: pd.DataFrame,
-                 current_price: float, theta_sell: float, p_sell: float, 
-                 fit_metrics_sell: dict, sell_depths: np.ndarray, actual_profits: np.ndarray):
-    """Print comprehensive summary"""
-    print("\n" + "=" * 60)
-    print("                    SUMMARY")
-    print("=" * 60)
-    
-    print(f"\nMARKET DATA:")
-    print(f"  Symbol: {config['symbol']}")
-    print(f"  Current Price: ${current_price:.2f}")
-    print(f"  Lookback: {config['lookback_days']} days")
-    print(f"  Timeframe: 1h")
-    
-    print(f"\nBUY-SIDE WEIBULL FIT:")
-    print(f"  Theta (scale): {theta:.3f}")
-    print(f"  P (shape): {p:.3f}")
-    print(f"  R²: {fit_metrics['r_squared']:.4f}")
-    print(f"  RMSE: {fit_metrics['rmse']:.6f}")
-    print(f"  Data Points: {fit_metrics['n_points']}")
-    
-    print(f"\nSELL-SIDE WEIBULL FIT:")
-    print(f"  Theta (scale): {theta_sell:.3f}")
-    print(f"  P (shape): {p_sell:.3f}")
-    print(f"  R²: {fit_metrics_sell['r_squared']:.4f}")
-    print(f"  RMSE: {fit_metrics_sell['rmse']:.6f}")
-    print(f"  Data Points: {fit_metrics_sell['n_points']}")
-    
-    print(f"\nLADDER CONFIGURATION:")
-    print(f"  Number of Rungs: {len(depths)}")
-    print(f"  Buy Depth Range: {depths[0]:.3f}% - {depths[-1]:.3f}%")
-    print(f"  Sell Depth Range: {sell_depths[0]:.3f}% - {sell_depths[-1]:.3f}%")
-    
-    print(f"\nSIZE ALLOCATION:")
-    print(f"  Total Budget: ${config['budget_usd']:.2f}")
-    print(f"  Total Allocation: ${np.sum(allocations):.2f}")
-    print(f"  Allocation Ratio: {np.max(allocations)/np.min(allocations):.2f}")
-    
-    print(f"\nPAIRED ORDERS:")
-    print(f"  Valid Pairs: {len(paired_orders_df)}")
-    print(f"  Total Expected Profit: ${paired_orders_df['profit_usd'].sum():.2f}")
-    print(f"  Average Profit: {paired_orders_df['profit_pct'].mean():.2f}%")
-    print(f"  Profit Range: {paired_orders_df['profit_pct'].min():.2f}% - {paired_orders_df['profit_pct'].max():.2f}%")
-    
-    print(f"\nOUTPUTS:")
-    print(f"  Paired Orders CSV: output/paired_orders.csv")
-    print(f"  Orders CSV: output/orders.csv")
-    print(f"  Excel Report: output/ladder_report.xlsx")
-    print(f"  Visualizations: output/*.png")
-    
-    print("\n" + "=" * 60)
-
-
 def run_analysis_step(step_name: str, func, *args, **kwargs):
-    """Run an analysis step with error handling and logging"""
+    """Run analysis step with error handling"""
     print(f"\n{step_name}...")
     try:
         result = func(*args, **kwargs)
-        print(f"[OK] {step_name} completed successfully")
+        print(f"[OK]")
         return result
     except Exception as e:
-        print(f"[ERROR] Error in {step_name}: {e}")
+        print(f"[ERROR] {e}")
         raise
 
 
 def main():
-    """Main execution function - streamlined orchestration"""
+    """Main execution function"""
     symbol = "SOLUSDT"
     
     with LoggingContext(output_dir="output", symbol=symbol) as logger:
         try:
-            print_banner()
+            print("=" * 60)
+            print("    STAGGERED ORDER LADDER SYSTEM")
+            print("=" * 60 + "\n")
             cleanup_output_directory()
-            logger.log_analysis_step("Starting staggered order ladder analysis", "SUCCESS")
+            logger.log_analysis_step("Starting analysis", "SUCCESS")
             
             # Load configuration
             config = run_analysis_step("Loading configuration", load_config)
@@ -362,18 +288,17 @@ def main():
                              scenarios_df, rung_sensitivity_df, depth_sensitivity_df, combined_sensitivity_df)
             
             # Print summary
-            print_summary(config, theta, p, fit_metrics, 
-                         ladder_depths, allocations, 
-                         paired_orders_df, current_price,
-                         theta_sell, p_sell, 
-                         fit_metrics_sell, sell_depths, 
-                         actual_profits)
-            
-            print(f"\n{'='*60}")
+            print("\n" + "=" * 60)
+            print("SUMMARY")
+            print("=" * 60)
+            print(f"Symbol: {config['symbol']} | Price: ${current_price:.2f}")
+            print(f"Buy Weibull: θ={theta:.3f}, p={p:.3f}, R²={fit_metrics['r_squared']:.4f}")
+            print(f"Sell Weibull: θ={theta_sell:.3f}, p={p_sell:.3f}, R²={fit_metrics_sell['r_squared']:.4f}")
+            print(f"Ladder: {len(ladder_depths)} rungs | Budget: ${config['budget_usd']:.0f}")
+            print(f"Pairs: {len(paired_orders_df)} | Avg Profit: {paired_orders_df['profit_pct'].mean():.2f}%")
+            print(f"Outputs: output/*.csv, output/ladder_report.xlsx, output/*.png")
+            print("=" * 60)
             print("ANALYSIS COMPLETE")
-            print(f"{'='*60}")
-            print(f"All outputs saved to output/ directory")
-            print("\nStaggered order ladder system completed successfully!")
             
             if logger:
                 logger.log_analysis_step("Analysis completed successfully", "SUCCESS")

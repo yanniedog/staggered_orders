@@ -19,6 +19,7 @@ from weibull_fit import fit_weibull_tail
 from data_fetcher import get_current_price
 from analysis import weibull_touch_probability
 from data_manager import data_manager
+from utils import get_price_levels, get_sell_price_levels
 
 warnings.filterwarnings('ignore')
 
@@ -285,68 +286,23 @@ class LadderCalculator:
     
     def _calculate_quantity_distribution(self, depths: np.ndarray, budget: float,
                                         distribution_method: str, current_price: float) -> np.ndarray:
-        """
-        Calculate quantity allocations using different distribution methods.
-
-        Args:
-            depths: Array of depth percentages
-            budget: Total budget in USD
-            distribution_method: Method for distribution ('equal_quantity', 'equal_notional', etc.)
-            current_price: Current market price
-
-        Returns:
-            Array of allocation amounts for each rung
-        """
+        """Calculate quantity allocations using different distribution methods"""
         num_rungs = len(depths)
-
-        if distribution_method == 'equal_quantity':
-            # Equal quantity per rung - same number of coins at each level
-            # But we need to respect budget constraint, so scale accordingly
-            prices = current_price * (1 - depths / 100)
-            # Start with equal quantities, then scale to fit budget
-            equal_qty = budget / num_rungs / prices.mean()  # Approximate
-            quantities = np.full(num_rungs, equal_qty)
-            allocations = quantities * prices
-            # Scale to exact budget
-            total_allocation = allocations.sum()
-            allocations = allocations * (budget / total_allocation)
-            return allocations
-
-        elif distribution_method == 'equal_notional':
-            # Equal notional value per rung - same USD amount at each level
-            return np.full(num_rungs, budget / num_rungs)
-
-        elif distribution_method == 'linear_increase':
-            # Linear increase from first to last rung
-            # First rung gets smallest allocation, last rung gets largest
-            weights = np.linspace(0.5, 2.0, num_rungs)  # From 0.5x to 2x average
-            weights = weights / weights.sum()  # Normalize to sum to 1
-            return weights * budget
-
-        elif distribution_method == 'exponential_increase':
-            # Exponential increase - closer rungs get smaller allocations
-            # Further rungs get exponentially larger allocations
-            weights = np.exp(np.linspace(-1, 1, num_rungs))  # Exponential curve
-            weights = weights / weights.sum()  # Normalize
-            return weights * budget
-
-        elif distribution_method == 'risk_parity':
-            # Risk-parity approach - allocate inversely to perceived risk (depth)
-            # Closer rungs (lower depth) are perceived as lower risk, get larger allocations
-            # Further rungs (higher depth) are perceived as higher risk, get smaller allocations
-            risk_weights = 1.0 / (depths + 1)  # Inverse relationship with depth
-            risk_weights = risk_weights / risk_weights.sum()  # Normalize
-            return risk_weights * budget
-
-        elif distribution_method == 'price_weighted':
-            # Current method - allocations inversely proportional to price
-            prices = current_price * (1 - depths / 100)
-            # This will be handled by the existing optimize_sizes function
-            # For now, return equal allocations as fallback
-            return np.full(num_rungs, budget / num_rungs)
-
+        prices = current_price * (1 - depths / 100)
+        
+        # Distribution strategies
+        strategies = {
+            'equal_quantity': lambda: (np.full(num_rungs, budget / num_rungs / prices.mean()) * prices) * (budget / (np.full(num_rungs, budget / num_rungs / prices.mean()) * prices).sum()),
+            'equal_notional': lambda: np.full(num_rungs, budget / num_rungs),
+            'linear_increase': lambda: np.linspace(0.5, 2.0, num_rungs) / np.linspace(0.5, 2.0, num_rungs).sum() * budget,
+            'exponential_increase': lambda: np.exp(np.linspace(-1, 1, num_rungs)) / np.exp(np.linspace(-1, 1, num_rungs)).sum() * budget,
+            'risk_parity': lambda: (1.0 / (depths + 1)) / (1.0 / (depths + 1)).sum() * budget,
+            'price_weighted': lambda: np.full(num_rungs, budget / num_rungs)
+        }
+        
+        if distribution_method in strategies:
+            return strategies[distribution_method]()
         else:
-            # Default to equal notional
             print(f"Warning: Unknown distribution method '{distribution_method}', using equal_notional")
             return np.full(num_rungs, budget / num_rungs)
 
@@ -474,25 +430,6 @@ class LadderCalculator:
             'timeframe_hours': ladder_data['timeframe_hours']
         }
     
-    def depth_to_price(self, depth: float, current_price: float) -> float:
-        """Convert depth percentage to actual price"""
-        return current_price * (1 - depth / 100)
-    
-    def price_to_depth(self, price: float, current_price: float) -> float:
-        """Convert actual price to depth percentage"""
-        return (current_price - price) / current_price * 100
-    
-    def format_price_label(self, price: float) -> str:
-        """Format price for display labels"""
-        return f"${price:.2f}"
-    
-    def get_price_levels(self, depths: np.ndarray, current_price: float) -> np.ndarray:
-        """Convert array of depths to price levels"""
-        return current_price * (1 - depths / 100)
-    
-    def get_sell_price_levels(self, sell_depths: np.ndarray, current_price: float) -> np.ndarray:
-        """Convert array of sell depths to price levels"""
-        return current_price * (1 + sell_depths / 100)
     
     def get_max_available_timeframe(self) -> int:
         """

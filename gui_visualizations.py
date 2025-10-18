@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 import warnings
+from utils import format_timeframe
 
 warnings.filterwarnings('ignore')
 
@@ -49,9 +50,7 @@ class VisualizationEngine:
     def create_all_charts(self, ladder_data: Dict, timeframe_hours: int) -> Tuple:
         """Create all visualization charts"""
         try:
-            # Format timeframe for display
-            timeframe_display = self._format_timeframe(timeframe_hours)
-
+            timeframe_display = format_timeframe(timeframe_hours)
             charts = (
                 self.create_ladder_configuration_chart(ladder_data, timeframe_display),
                 self.create_touch_probability_curves(ladder_data, timeframe_display),
@@ -646,20 +645,6 @@ class VisualizationEngine:
             print(f"Error creating fit quality dashboard: {e}")
             return self._create_empty_chart("Fit Quality Dashboard", "Error loading data")
     
-    def _format_timeframe(self, timeframe_hours: int) -> str:
-        """Format timeframe hours into human-readable display"""
-        if timeframe_hours < 24:
-            return f"{timeframe_hours}h"
-        elif timeframe_hours < 168:
-            days = timeframe_hours // 24
-            return f"{days}d"
-        elif timeframe_hours < 8760:
-            weeks = timeframe_hours // 168
-            return f"{weeks}w"
-        else:
-            years = timeframe_hours // 8760
-            return f"{years}y"
-
     def _create_empty_chart(self, title: str, message: str) -> go.Figure:
         """Create empty chart with error message"""
         fig = go.Figure()
