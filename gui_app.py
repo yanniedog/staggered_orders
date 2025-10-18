@@ -131,20 +131,16 @@ class InteractiveLadderGUI:
         """Create the left sidebar control panel"""
         return html.Div([
             html.Div([
-                html.H4("Configuration", style={'marginBottom': '20px', 'color': '#ffffff', 'textAlign': 'center'})
-            ], style={'backgroundColor': '#3d3d3d', 'padding': '15px', 'borderRadius': '8px', 'marginBottom': '20px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.3)'}),
-            
-            html.Div([
                 # Aggression Level Slider
                 html.Div([
                     html.Label("Aggression Level", style={'fontWeight': 'bold', 'color': '#ffffff'}),
                     dcc.Slider(
                         id='aggression-slider',
-                        min=1, max=10, step=1, value=5,
-                        marks={i: str(i) for i in range(1, 11)},
+                        min=1, max=5, step=1, value=3,
+                        marks={1: '1', 2: '2', 3: '3', 4: '4', 5: '5'},
                         tooltip={"placement": "bottom", "always_visible": True}
                     ),
-                    html.Small("Controls depth range: 1=Conservative, 10=Very Aggressive", 
+                    html.Small("Controls depth range: 1=Conservative, 5=Very Aggressive", 
                              style={'color': '#6c757d'})
                 ], style={'marginBottom': '30px'}),
                 
@@ -153,8 +149,8 @@ class InteractiveLadderGUI:
                     html.Label("Number of Rungs", style={'fontWeight': 'bold', 'color': '#ffffff'}),
                     dcc.Slider(
                         id='rungs-slider',
-                        min=5, max=50, step=1, value=20,
-                        marks={i: str(i) for i in range(5, 51, 5)},
+                        min=5, max=50, step=5, value=20,
+                        marks={5: '5', 10: '10', 15: '15', 20: '20', 30: '30', 40: '40', 50: '50'},
                         tooltip={"placement": "bottom", "always_visible": True}
                     ),
                     html.Small("More rungs = finer granularity, smaller allocations", 
@@ -166,28 +162,20 @@ class InteractiveLadderGUI:
                     html.Label("Analysis Timeframe", style={'fontWeight': 'bold', 'color': '#ffffff'}),
                     dcc.Slider(
                         id='timeframe-slider',
-                        min=1, max=87600, step=1, value=168,
+                        min=0, max=7, step=1, value=2,
                         marks={
-                            1: "1h",
-                            24: "1d",
-                            168: "1w",
-                            720: "1m",
-                            2160: "3m",
-                            4320: "6m",
-                            6480: "9m",
-                            8760: "1y",
-                            13140: "1.5y",
-                            17520: "2y",
-                            21900: "2.5y",
-                            26280: "3y",
-                            35040: "4y",
-                            43800: "5y",
-                            87600: "10y",
-                            87601: "max"  # Will be updated dynamically
+                            0: "1d",
+                            1: "1w",
+                            2: "1m",
+                            3: "6m",
+                            4: "1y",
+                            5: "3y",
+                            6: "5y",
+                            7: "max"
                         },
                         tooltip={"placement": "bottom", "always_visible": True}
                     ),
-                    html.Small("Historical analysis window in hours", 
+                    html.Small("Historical analysis window", 
                              style={'color': '#6c757d'})
                 ], style={'marginBottom': '30px'}),
                 
@@ -228,7 +216,35 @@ class InteractiveLadderGUI:
                     html.Small("How quantities are distributed across ladder rungs",
                              style={'color': '#6c757d'})
                 ], style={'marginBottom': '30px'}),
+
+                # Rung Positioning Method
+                html.Div([
+                    html.Label("Rung Positioning Method", style={'fontWeight': 'bold', 'color': '#ffffff'}),
+                    dcc.Dropdown(
+                        id='rung-positioning-dropdown',
+                        options=[
+                            {'label': 'Quantile-Based (Current)', 'value': 'quantile'},
+                            {'label': 'Expected Value Optimization', 'value': 'expected_value'},
+                            {'label': 'Linear Spacing', 'value': 'linear'},
+                            {'label': 'Exponential Spacing', 'value': 'exponential'},
+                            {'label': 'Logarithmic Spacing', 'value': 'logarithmic'},
+                            {'label': 'Risk-Weighted', 'value': 'risk_weighted'}
+                        ],
+                        value='quantile',
+                        style={'width': '100%', 'marginBottom': '10px',
+                               'backgroundColor': '#3d3d3d', 'color': '#000000', 'borderRadius': '4px'}
+                    ),
+                    html.Small("How ladder rungs are positioned across price levels",
+                             style={'color': '#6c757d'})
+                ], style={'marginBottom': '30px'}),
                 
+                # Current Price Display
+                html.Div([
+                    html.Label("Current Price", style={'fontWeight': 'bold', 'color': '#ffffff'}),
+                    html.Div(id='current-price-display',
+                           style={'fontSize': '24px', 'color': '#28a745', 'marginBottom': '10px'})
+                ], style={'marginBottom': '30px'}),
+
                 # Cryptocurrency Selection
                 html.Div([
                     html.Label("Cryptocurrency", style={'fontWeight': 'bold', 'color': '#ffffff'}),
@@ -293,49 +309,6 @@ class InteractiveLadderGUI:
                     ),
                     html.Small("Select cryptocurrency for ladder analysis",
                              style={'color': '#6c757d'})
-                ], style={'marginBottom': '30px'}),
-
-                # Current Price Display
-                html.Div([
-                    html.Label("Current Price", style={'fontWeight': 'bold', 'color': '#ffffff'}),
-                    html.Div(id='current-price-display',
-                           style={'fontSize': '24px', 'color': '#28a745', 'marginBottom': '10px'}),
-                    html.Button("Refresh Price", id='refresh-price-btn',
-                              style={'backgroundColor': '#007bff', 'color': '#ffffff',
-                                     'border': 'none', 'padding': '8px 16px', 'borderRadius': '4px'})
-                ], style={'marginBottom': '30px'}),
-
-                # Rung Positioning Method
-                html.Div([
-                    html.Label("Rung Positioning Method", style={'fontWeight': 'bold', 'color': '#ffffff'}),
-                    dcc.Dropdown(
-                        id='rung-positioning-dropdown',
-                        options=[
-                            {'label': 'Quantile-Based (Current)', 'value': 'quantile'},
-                            {'label': 'Expected Value Optimization', 'value': 'expected_value'},
-                            {'label': 'Linear Spacing', 'value': 'linear'},
-                            {'label': 'Exponential Spacing', 'value': 'exponential'},
-                            {'label': 'Logarithmic Spacing', 'value': 'logarithmic'},
-                            {'label': 'Risk-Weighted', 'value': 'risk_weighted'}
-                        ],
-                        value='quantile',
-                        style={'width': '100%', 'marginBottom': '10px',
-                               'backgroundColor': '#3d3d3d', 'color': '#000000', 'borderRadius': '4px'}
-                    ),
-                    html.Small("How ladder rungs are positioned across price levels",
-                             style={'color': '#6c757d'})
-                ], style={'marginBottom': '30px'}),
-
-                # Action Buttons
-                html.Div([
-                    html.Button("Recalculate All", id='recalculate-btn', 
-                              style={'backgroundColor': '#007bff', 'color': '#ffffff', 
-                                     'border': 'none', 'padding': '10px', 'borderRadius': '4px',
-                                     'width': '100%', 'marginBottom': '10px'}),
-                    html.Button("Export Configuration", id='export-btn', 
-                              style={'backgroundColor': '#6c757d', 'color': '#ffffff', 
-                                     'border': 'none', 'padding': '10px', 'borderRadius': '4px',
-                                     'width': '100%'})
                 ])
             ], style={'backgroundColor': '#2d2d2d', 'padding': '20px', 'borderRadius': '0 0 8px 8px', 
                      'border': '1px solid #444444', 'margin': '0px'})
@@ -454,48 +427,33 @@ class InteractiveLadderGUI:
              Input('quantity-distribution-dropdown', 'value'),
              Input('crypto-dropdown', 'value'),
              Input('rung-positioning-dropdown', 'value'),
-             Input('recalculate-btn', 'n_clicks'),
              Input('cache-buster', 'data')],
             [State('calculation-cache', 'data')]
         )
-        def update_all_visualizations_callback(aggression_level, num_rungs, timeframe_hours,
+        def update_all_visualizations_callback(aggression_level, num_rungs, timeframe_slider,
                                              budget, quantity_distribution, crypto_symbol, rung_positioning,
-                                             recalculate_clicks, cache_buster, cache_data):
+                                             cache_buster, cache_data):
+            # Map slider position to actual hours
+            timeframe_map = {0: 24, 1: 168, 2: 720, 3: 4320, 4: 8760, 5: 26280, 6: 43800, 7: 87600}
+            timeframe_hours = timeframe_map.get(timeframe_slider, 720)
+            
             return self.update_all_visualizations(aggression_level, num_rungs, timeframe_hours,
                                                  budget, quantity_distribution, crypto_symbol, rung_positioning,
-                                                 recalculate_clicks, cache_data)
+                                                 cache_data)
         
         # Current price callback
         @self.app.callback(
             Output('current-price-display', 'children'),
-            [Input('refresh-price-btn', 'n_clicks'),
-             Input('interval-component', 'n_intervals'),
+            [Input('interval-component', 'n_intervals'),
              Input('crypto-dropdown', 'value')]
         )
-        def update_current_price_callback(refresh_clicks, interval_n, crypto_symbol):
-            return self.update_current_price(refresh_clicks, interval_n, crypto_symbol)
-        
-        # Export callback
-        @self.app.callback(
-            Output('export-btn', 'children'),
-            [Input('export-btn', 'n_clicks')],
-            [State('calculation-cache', 'data')]
-        )
-        def export_configuration_callback(export_clicks, cache_data):
-            return self.export_configuration(export_clicks, cache_data)
+        def update_current_price_callback(interval_n, crypto_symbol):
+            return self.update_current_price(interval_n, crypto_symbol)
 
-        # Timeframe slider initialization callback
-        @self.app.callback(
-            [Output('timeframe-slider', 'max'),
-             Output('timeframe-slider', 'marks')],
-            [Input('cache-buster', 'data')]
-        )
-        def initialize_timeframe_slider_callback(cache_buster):
-            return self.initialize_timeframe_slider()
     
     def update_all_visualizations(self, aggression_level, num_rungs, timeframe_hours,
                                  budget, quantity_distribution, crypto_symbol, rung_positioning,
-                                 recalculate_clicks, cache_data):
+                                 cache_data):
         """Main callback that updates all visualizations"""
         # Debounce updates
         current_time = time.time() * 1000
@@ -561,59 +519,14 @@ class InteractiveLadderGUI:
         empty_figs = (empty_fig,) * 9
         return (*empty_figs, "N/A", "N/A", "N/A", "N/A", cache_data)
     
-    def update_current_price(self, refresh_clicks, interval_n, crypto_symbol='SOLUSDT'):
+    def update_current_price(self, interval_n, crypto_symbol='SOLUSDT'):
         """Update current price display"""
         try:
             current_price = get_current_price(crypto_symbol)
             return f"${current_price:.2f}"
         except Exception as e:
             return f"Error: {e}"
-    
-    def export_configuration(self, export_clicks, cache_data):
-        """Export current configuration"""
-        if export_clicks and cache_data:
-            # Implementation for export functionality
-            return "Exported!"
-        return "Export Configuration"
 
-    def initialize_timeframe_slider(self):
-        """Initialize timeframe slider with dynamic max value and marks"""
-        try:
-            # Get maximum available timeframe from calculator
-            max_hours = self.calculator.get_max_available_timeframe()
-
-            # Create comprehensive marks dictionary
-            base_marks = {
-                1: "1h",
-                24: "1d",
-                168: "1w",
-                720: "1m",
-                2160: "3m",
-                4320: "6m",
-                6480: "9m",
-                8760: "1y",
-                13140: "1.5y",
-                17520: "2y",
-                21900: "2.5y",
-                26280: "3y",
-                35040: "4y",
-                43800: "5y",
-                87600: "10y"
-            }
-
-            # Add max mark if it's different from 10y
-            if max_hours != 87600 and max_hours > 87600:
-                base_marks[max_hours] = f"max ({max_hours//24}d)"
-
-            print(f"Initialized timeframe slider: max={max_hours}h, {len(base_marks)} marks")
-            return max_hours, base_marks
-
-        except Exception as e:
-            print(f"Error initializing timeframe slider: {e}")
-            # Fallback to original values
-            fallback_marks = {1: "1h", 24: "1d", 168: "1w", 720: "30d"}
-            return 720, fallback_marks
-    
     def run(self, debug=True, port=8050):
         """Run the application"""
         print(f"Starting Interactive Ladder GUI on http://localhost:{port}")

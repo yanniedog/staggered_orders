@@ -90,6 +90,9 @@ class VisualizationEngine:
             max_marker_size = 25
             buy_marker_sizes = min_marker_size + (buy_allocations / max_allocation) * (max_marker_size - min_marker_size)
             
+            # Calculate buy volumes (quantity of coins)
+            buy_volumes = buy_allocations / buy_prices
+            
             # Add buy orders (scatter) - price on y-axis, allocation as marker size
             fig.add_trace(go.Scatter(
                 x=list(range(len(buy_prices))),  # Use index for x-axis
@@ -104,14 +107,16 @@ class VisualizationEngine:
                 ),
                 hovertemplate='<b>Buy Order</b><br>' +
                              'Price: $%{y:.2f}<br>' +
-                             'Allocation: $%{customdata:,.0f}<br>' +
+                             'Allocation: $%{customdata[0]:,.0f}<br>' +
+                             'Volume: %{customdata[1]:,.2f} coins<br>' +
                              'Depth: %{text:.2f}%<extra></extra>',
-                customdata=buy_allocations,
+                customdata=np.column_stack([buy_allocations, buy_volumes]),
                 text=buy_depths
             ))
             
             # Add sell orders (scatter)
             sell_allocations = ladder_data.get('sell_allocations', ladder_data['sell_quantities'] * sell_prices)
+            sell_volumes = ladder_data['sell_quantities']
             sell_marker_sizes = min_marker_size + (sell_allocations / max_allocation) * (max_marker_size - min_marker_size)
             
             fig.add_trace(go.Scatter(
@@ -127,9 +132,10 @@ class VisualizationEngine:
                 ),
                 hovertemplate='<b>Sell Order</b><br>' +
                              'Price: $%{y:.2f}<br>' +
-                             'Allocation: $%{customdata:,.0f}<br>' +
+                             'Allocation: $%{customdata[0]:,.0f}<br>' +
+                             'Volume: %{customdata[1]:,.2f} coins<br>' +
                              'Depth: %{text:.2f}%<extra></extra>',
-                customdata=sell_allocations,
+                customdata=np.column_stack([sell_allocations, sell_volumes]),
                 text=sell_depths
             ))
             
@@ -215,73 +221,79 @@ class VisualizationEngine:
             return self._create_empty_chart("Touch Probability Curves", "Error loading data")
     
     def create_rung_touch_probabilities_chart(self, ladder_data: Dict, timeframe_display: str = "") -> go.Figure:
-        """Create bar chart of individual rung touch probabilities using actual price levels"""
+        """Create /\ shaped probability distribution centered at current price"""
         try:
             buy_touch_probs = ladder_data['buy_touch_probs']
             sell_touch_probs = ladder_data['sell_touch_probs']
-            joint_probs = ladder_data['joint_probs']
             buy_prices = ladder_data['buy_prices']
             sell_prices = ladder_data['sell_prices']
+            current_price = ladder_data['current_price']
             
-            # Create price labels for x-axis
-            price_labels = [f"${price:.2f}" for price in buy_prices]
+            # Combine buy and sell sides, sorted by price
+            all_prices = np.concatenate([buy_prices, [current_price], sell_prices])
+            
+            # For buy side: probabilities decrease as we go further below current price
+            # For sell side: probabilities decrease as we go further above current price
+            # Current price has highest touch probability (1.0 conceptually)
+            all_probs = np.concatenate([buy_touch_probs, [1.0], sell_touch_probs])
+            
+            # Sort by price
+            sort_idx = np.argsort(all_prices)
+            all_prices_sorted = all_prices[sort_idx]
+            all_probs_sorted = all_probs[sort_idx]
+            
+            # Determine colors (buy side = green, current = white, sell side = red)
+            colors = []
+            for price in all_prices_sorted:
+                if price < current_price:
+                    colors.append(self.colors['buy'])
+                elif price > current_price:
+                    colors.append(self.colors['sell'])
+                else:
+                    colors.append('#ffffff')
             
             fig = go.Figure()
             
-            # Add buy probabilities
+            # Add bars with gradient coloring
             fig.add_trace(go.Bar(
-                x=price_labels,
-                y=buy_touch_probs,
-                name='Buy Touch Prob',
-                marker_color=self.colors['buy'],
+                x=[f"${price:.2f}" for price in all_prices_sorted],
+                y=all_probs_sorted,
+                marker_color=colors,
                 opacity=0.8,
+                showlegend=False,
                 hovertemplate='<b>Price: %{x}</b><br>' +
-                             'Buy Touch Prob: %{y:.3f}<br>' +
+                             'Touch Probability: %{y:.3f}<br>' +
                              '<extra></extra>'
             ))
             
-            # Add sell probabilities
-            fig.add_trace(go.Bar(
-                x=[f"${price:.2f}" for price in sell_prices],
-                y=sell_touch_probs,
-                name='Sell Touch Prob',
-                marker_color=self.colors['sell'],
-                opacity=0.8,
-                hovertemplate='<b>Price: %{x}</b><br>' +
-                             'Sell Touch Prob: %{y:.3f}<br>' +
-                             '<extra></extra>'
+            # Add line to emphasize the /\ shape
+            fig.add_trace(go.Scatter(
+                x=[f"${price:.2f}" for price in all_prices_sorted],
+                y=all_probs_sorted,
+                mode='lines',
+                line=dict(color='#ffffff', width=2),
+                showlegend=False,
+                hoverinfo='skip'
             ))
             
-            # Add joint probabilities
-            fig.add_trace(go.Bar(
-                x=price_labels,
-                y=joint_probs,
-                name='Joint Prob',
-                marker_color=self.colors['warning'],
-                opacity=0.8,
-                hovertemplate='<b>Price: %{x}</b><br>' +
-                             'Joint Prob: %{y:.3f}<br>' +
-                             '<extra></extra>'
-            ))
-            
-            title = "Individual Price Level Touch Probabilities"
+            title = "Touch Probability Distribution (centered at current price)"
             if timeframe_display:
-                title += f" ({timeframe_display} analysis)"
+                title += f" ({timeframe_display})"
 
             fig.update_layout(
                 title=title,
                 xaxis_title="Price Level",
-                yaxis_title="Probability",
-                barmode='group',
+                yaxis_title="Touch Probability",
                 **self.layout_template,
-                height=400
+                height=400,
+                xaxis={'tickangle': -45}
             )
             
             return fig
             
         except Exception as e:
-            print(f"Error creating rung touch probabilities chart: {e}")
-            return self._create_empty_chart("Individual Rung Touch Probabilities", "Error loading data")
+            print(f"Error creating touch probabilities chart: {e}")
+            return self._create_empty_chart("Touch Probability Distribution", "Error loading data")
     
     def create_historical_touch_frequency_chart(self, ladder_data: Dict, timeframe_hours: int, timeframe_display: str = "") -> go.Figure:
         """Create histogram of historical touch frequency using actual price levels"""

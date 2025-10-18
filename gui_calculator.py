@@ -271,18 +271,13 @@ class LadderCalculator:
     def _get_depth_range_for_aggression(self, aggression_level: int) -> Tuple[float, float]:
         """Map aggression level to depth range"""
         depth_mappings = {
-            1: (0.5, 5.0),    # Conservative
-            2: (1.0, 8.0),    # Conservative+
-            3: (1.5, 12.0),   # Moderate
-            4: (2.0, 15.0),   # Moderate+
-            5: (2.5, 18.0),   # Aggressive
-            6: (3.0, 20.0),   # Aggressive+
-            7: (3.5, 22.0),   # Very Aggressive
-            8: (4.0, 25.0),   # Very Aggressive+
-            9: (4.5, 28.0),   # Extreme
-            10: (5.0, 30.0)   # Extreme+
+            1: (0.5, 8.0),    # Conservative
+            2: (1.5, 15.0),   # Moderate
+            3: (2.5, 20.0),   # Aggressive
+            4: (3.5, 25.0),   # Very Aggressive
+            5: (5.0, 30.0)    # Extreme
         }
-        return depth_mappings.get(aggression_level, (2.5, 18.0))
+        return depth_mappings.get(aggression_level, (2.5, 20.0))
     
     def _calculate_quantity_distribution(self, depths: np.ndarray, budget: float,
                                         distribution_method: str, current_price: float) -> np.ndarray:
