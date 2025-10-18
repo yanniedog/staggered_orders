@@ -29,7 +29,8 @@ class InteractiveLadderGUI:
     def __init__(self):
         self.app = dash.Dash(
             __name__,
-            suppress_callback_exceptions=True
+            suppress_callback_exceptions=True,
+            external_stylesheets=['assets/style.css']
         )
         
         # Initialize calculation engines
@@ -50,26 +51,57 @@ class InteractiveLadderGUI:
     def setup_layout(self):
         """Create the main application layout"""
         self.app.layout = html.Div([
-            # Header
+            # Left sidebar - Controls (Fixed/Floating)
             html.Div([
-                html.H1("Interactive Staggered Order Ladder", 
-                       style={'textAlign': 'center', 'color': '#007bff', 'marginBottom': '20px'}),
-                html.P("Real-time visualization and analysis of order ladder configurations",
-                      style={'textAlign': 'center', 'color': '#6c757d', 'marginBottom': '30px'})
-            ]),
-            
-            # Main content area
-            html.Div([
-                # Left sidebar - Controls
+                # Floating indicator
                 html.Div([
-                    self.create_control_panel()
-                ], style={'width': '25%', 'float': 'left', 'paddingRight': '10px'}),
+                    html.Span("⚙️", style={'fontSize': '20px', 'marginRight': '10px'}),
+                    html.Span("Configuration Panel", style={'fontWeight': 'bold', 'color': '#ffffff'})
+                ], style={
+                    'backgroundColor': '#007bff',
+                    'color': '#ffffff',
+                    'padding': '10px',
+                    'textAlign': 'center',
+                    'borderRadius': '8px 8px 0 0',
+                    'marginBottom': '0px',
+                    'boxShadow': '0 2px 4px rgba(0,0,0,0.3)'
+                }),
                 
-                # Right side - Visualizations
+                self.create_control_panel()
+            ], style={
+                'position': 'fixed',
+                'top': '0px',
+                'left': '0px',
+                'width': '25%',
+                'height': '100vh',
+                'overflowY': 'auto',
+                'backgroundColor': '#1a1a1a',
+                'borderRight': '2px solid #444444',
+                'zIndex': '1000',
+                'padding': '0px',
+                'boxShadow': '2px 0 15px rgba(0, 0, 0, 0.4)'
+            }),
+            
+            # Right side - Visualizations (with left margin to account for fixed sidebar)
+            html.Div([
+                # Header (positioned to work with fixed sidebar)
                 html.Div([
-                    self.create_visualization_area()
-                ], style={'width': '75%', 'float': 'right', 'paddingLeft': '10px'})
-            ], style={'display': 'flex', 'width': '100%'}),
+                    html.H1("Interactive Staggered Order Ladder", 
+                           style={'textAlign': 'center', 'color': '#007bff', 'marginBottom': '20px'}),
+                    html.P("Real-time visualization and analysis of order ladder configurations",
+                          style={'textAlign': 'center', 'color': '#6c757d', 'marginBottom': '30px'})
+                ], style={'padding': '20px', 'backgroundColor': '#1a1a1a', 'borderBottom': '2px solid #444444', 'marginBottom': '20px'}),
+                
+                # Visualization content
+                self.create_visualization_area()
+            ], style={
+                'marginLeft': '25%',
+                'width': '75%',
+                'paddingLeft': '20px',
+                'paddingRight': '20px',
+                'minHeight': '100vh',
+                'backgroundColor': '#1a1a1a'
+            }),
             
             # Loading overlay
             dcc.Loading(
@@ -95,8 +127,8 @@ class InteractiveLadderGUI:
         """Create the left sidebar control panel"""
         return html.Div([
             html.Div([
-                html.H4("Configuration", style={'marginBottom': '20px', 'color': '#ffffff'})
-            ], style={'backgroundColor': '#3d3d3d', 'padding': '15px', 'borderRadius': '8px', 'marginBottom': '20px'}),
+                html.H4("Configuration", style={'marginBottom': '20px', 'color': '#ffffff', 'textAlign': 'center'})
+            ], style={'backgroundColor': '#3d3d3d', 'padding': '15px', 'borderRadius': '8px', 'marginBottom': '20px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.3)'}),
             
             html.Div([
                 # Aggression Level Slider
@@ -175,8 +207,8 @@ class InteractiveLadderGUI:
                                      'border': 'none', 'padding': '10px', 'borderRadius': '4px',
                                      'width': '100%'})
                 ])
-            ], style={'backgroundColor': '#2d2d2d', 'padding': '20px', 'borderRadius': '8px', 
-                     'border': '1px solid #444444'})
+            ], style={'backgroundColor': '#2d2d2d', 'padding': '20px', 'borderRadius': '0 0 8px 8px', 
+                     'border': '1px solid #444444', 'margin': '0px'})
         ])
     
     def create_visualization_area(self):
@@ -325,10 +357,20 @@ class InteractiveLadderGUI:
         self.last_update_time = current_time
         
         try:
+            # Validate inputs
+            if not all([aggression_level, num_rungs, timeframe_hours, budget]):
+                print("Warning: Missing input parameters")
+                return dash.no_update
+            
             # Calculate ladder configuration
             ladder_data = self.calculator.calculate_ladder_configuration(
                 aggression_level, num_rungs, timeframe_hours, budget
             )
+            
+            # Validate ladder data
+            if not ladder_data or 'buy_depths' not in ladder_data:
+                print("Error: Invalid ladder data returned")
+                return self._get_error_response(cache_data)
             
             # Generate all visualizations
             figures = self.visualizer.create_all_charts(ladder_data, timeframe_hours)
@@ -347,11 +389,26 @@ class InteractiveLadderGUI:
             
         except Exception as e:
             print(f"Error in visualization update: {e}")
-            # Return empty figures on error
-            empty_fig = go.Figure()
-            empty_fig.add_annotation(text="Error loading data", x=0.5, y=0.5, showarrow=False)
-            empty_figs = (empty_fig,) * 9
-            return (*empty_figs, "N/A", "N/A", "N/A", "N/A", cache_data)
+            import traceback
+            traceback.print_exc()
+            return self._get_error_response(cache_data)
+    
+    def _get_error_response(self, cache_data):
+        """Get error response with empty figures"""
+        empty_fig = go.Figure()
+        empty_fig.add_annotation(
+            text="Error loading data - check console for details", 
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=16, color="red")
+        )
+        empty_fig.update_layout(
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font={'color': '#ffffff'},
+            height=400
+        )
+        empty_figs = (empty_fig,) * 9
+        return (*empty_figs, "N/A", "N/A", "N/A", "N/A", cache_data)
     
     def update_current_price(self, refresh_clicks, interval_n):
         """Update current price display"""
@@ -371,7 +428,7 @@ class InteractiveLadderGUI:
     def run(self, debug=True, port=8050):
         """Run the application"""
         print(f"Starting Interactive Ladder GUI on http://localhost:{port}")
-        self.app.run_server(debug=debug, port=port)
+        self.app.run(debug=debug, port=port)
 
 if __name__ == "__main__":
     gui = InteractiveLadderGUI()

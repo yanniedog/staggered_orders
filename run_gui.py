@@ -11,7 +11,7 @@ def check_dependencies():
     """Check if required dependencies are installed"""
     required_packages = [
         'dash', 'plotly', 'pandas', 'numpy', 'scipy', 
-        'matplotlib', 'seaborn', 'pyyaml', 'requests'
+        'matplotlib', 'seaborn', 'yaml', 'requests'
     ]
     
     missing_packages = []

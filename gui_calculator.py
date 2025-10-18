@@ -102,7 +102,6 @@ class LadderCalculator:
                 'sell': {'theta': 2.5, 'p': 1.2}
             }
     
-    @lru_cache(maxsize=100)
     def calculate_ladder_configuration(self, aggression_level: int, num_rungs: int, 
                                      timeframe_hours: int, budget: float) -> Dict:
         """
