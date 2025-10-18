@@ -1,0 +1,48 @@
+# Staggered Order Ladder Configuration
+
+# Market Parameters
+symbol: "SOLUSDT"
+current_price: 0.0  # Will be fetched from Binance
+budget_usd: 100000.0
+
+# Time Horizon & Data - Single 1h Timeframe
+lookback_days: 1095     # 3 years for comprehensive historical analysis
+max_analysis_hours: 720  # Maximum time window to analyze for touch events (30 days)
+
+# Scenario Analysis Configuration
+num_rungs: null          # Fixed number of rungs (null = use optimization between min/max)
+min_rungs: 5            # Minimum rungs for optimization (used when num_rungs is null)
+max_rungs: 20            # Maximum rungs for optimization (used when num_rungs is null)
+min_profit_pct: 1.0      # 1% per pair (conservative)
+max_profit_pct: 1000.0    # 1000% per pair (very aggressive - triggers deepest ladders)
+num_profit_scenarios: 10
+
+# Trading Costs
+trading_fee_pct: 0.1      # Binance spot trading fee (0.1% per side)
+slippage_pct: 0.05        # Estimated slippage (0.05% per side)
+total_cost_pct: 0.25      # Total round-trip cost (buy + sell + slippage)
+
+# Binance Exchange Constraints
+tick_size: 0.01      # Minimum price increment
+step_size: 0.1       # Minimum quantity increment
+min_notional: 10.0   # Minimum order value in USDT
+min_qty: 0.1         # Minimum quantity
+
+# Fitting Parameters
+min_fit_quality: 0.90  # Slightly relaxed for longer-term data
+max_iterations: 1000   # Max iterations for curve fitting
+
+# Risk Management - DISABLED
+# max_position_size_pct: 20.0    # Maximum position size as % of budget
+# max_drawdown_pct: 100.0         # Maximum acceptable drawdown
+# stop_loss_pct: 15.0            # Stop loss threshold (% below buy price)
+# max_holding_hours: 168         # Maximum holding period (1 week)
+# max_single_rung_pct: 5.0       # Maximum allocation to single rung (% of budget)
+
+# Sell Ladder Configuration
+risk_adjustment_factor: 1.5  # Deeper buys get 1.5x more profit target
+
+# Output Settings
+cache_data: true
+cache_hours: 24       # Reuse cached data if less than this old
+output_dir: "output"

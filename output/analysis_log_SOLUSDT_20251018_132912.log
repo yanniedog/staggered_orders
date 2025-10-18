@@ -1,0 +1,36 @@
+2025-10-18 13:29:12,566 - analysis_20251018_132912 - INFO - STEP: Starting staggered order ladder analysis
+2025-10-18 13:29:12,569 - analysis_20251018_132912 - INFO - Configuration logged
+2025-10-18 13:29:12,569 - analysis_20251018_132912 - INFO - Data summary logged
+2025-10-18 13:29:12,623 - analysis_20251018_132912 - INFO - Data summary logged
+2025-10-18 13:29:18,676 - analysis_20251018_132912 - INFO - STEP: Buy-side touch probability analysis completed
+2025-10-18 13:29:21,184 - analysis_20251018_132912 - INFO - STEP: Sell-side touch probability analysis completed
+2025-10-18 13:29:21,188 - analysis_20251018_132912 - INFO - Weibull fit (buy): R²=0.9983, RMSE=0.0070, Quality=excellent
+2025-10-18 13:29:21,195 - analysis_20251018_132912 - INFO - Weibull fit (sell): R²=0.9978, RMSE=0.0084, Quality=excellent
+2025-10-18 13:29:25,215 - analysis_20251018_132912 - INFO - Top scenario: 0.0% profit, 0 rungs, 0.000 expected return
+2025-10-18 13:29:25,215 - analysis_20251018_132912 - INFO - STEP: Profit scenario analysis completed
+2025-10-18 13:29:25,215 - analysis_20251018_132912 - INFO - STEP: Optimal scenario selected: 200.0% profit
+2025-10-18 13:29:25,296 - analysis_20251018_132912 - INFO - Generated 20 paired orders
+2025-10-18 13:29:25,296 - analysis_20251018_132912 - INFO - Total expected profit: $3396.19
+2025-10-18 13:29:25,297 - analysis_20251018_132912 - INFO - STEP: Paired order generation completed
+2025-10-18 13:29:25,319 - analysis_20251018_132912 - INFO - Sensitivity analysis completed
+2025-10-18 13:29:25,319 - analysis_20251018_132912 - INFO - STEP: Sensitivity analysis completed
+2025-10-18 13:29:25,335 - analysis_20251018_132912 - WARNING - PROBLEM: Unrealistic maximum profit: 52.8%
+2025-10-18 13:29:25,340 - analysis_20251018_132912 - INFO - Validation results logged
+2025-10-18 13:29:25,340 - analysis_20251018_132912 - INFO - STEP: Comprehensive validation completed
+2025-10-18 13:29:38,614 - analysis_20251018_132912 - INFO - STEP: Analysis completed successfully
+2025-10-18 13:29:38,614 - analysis_20251018_132912 - INFO - Performance metrics logged
+2025-10-18 13:29:38,620 - analysis_20251018_132912 - INFO - Analysis data saved to output\analysis_data_SOLUSDT_20251018_132912.json
+2025-10-18 13:29:38,620 - analysis_20251018_132912 - INFO - ============================================================
+2025-10-18 13:29:38,620 - analysis_20251018_132912 - INFO - ANALYSIS RUN SUMMARY
+2025-10-18 13:29:38,620 - analysis_20251018_132912 - INFO - ============================================================
+2025-10-18 13:29:38,626 - analysis_20251018_132912 - INFO - Run ID: 20251018_132912
+2025-10-18 13:29:38,626 - analysis_20251018_132912 - INFO - Symbol: SOLUSDT
+2025-10-18 13:29:38,627 - analysis_20251018_132912 - INFO - Duration: 26.1 seconds
+2025-10-18 13:29:38,627 - analysis_20251018_132912 - INFO - Problems: 1
+2025-10-18 13:29:38,627 - analysis_20251018_132912 - INFO - Warnings: 0
+2025-10-18 13:29:38,627 - analysis_20251018_132912 - INFO - Errors: 0
+2025-10-18 13:29:38,627 - analysis_20251018_132912 - INFO - Analysis Steps: 9
+2025-10-18 13:29:38,628 - analysis_20251018_132912 - INFO - ============================================================
+2025-10-18 13:29:38,628 - analysis_20251018_132912 - INFO - Log file: output\analysis_log_SOLUSDT_20251018_132912.log
+2025-10-18 13:29:38,628 - analysis_20251018_132912 - INFO - Data file: output\analysis_data_SOLUSDT_20251018_132912.json
+2025-10-18 13:29:38,628 - analysis_20251018_132912 - INFO - ============================================================
