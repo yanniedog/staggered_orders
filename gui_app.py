@@ -224,7 +224,9 @@ class InteractiveLadderGUI:
                         className='dark-dropdown'
                     ),
                     html.Small("How quantities are distributed across ladder rungs",
-                             style={'color': '#6c757d'})
+                             style={'color': '#6c757d'}),
+                    html.Div(id='quantity-distribution-explanation', 
+                            style={'color': '#ffffff', 'marginTop': '8px', 'fontSize': '13px', 'fontStyle': 'italic'})
                 ], style={'marginBottom': '30px'}),
 
                 # Rung Positioning Method
@@ -251,7 +253,9 @@ class InteractiveLadderGUI:
                         className='dark-dropdown'
                     ),
                     html.Small("How ladder rungs are positioned across price levels",
-                             style={'color': '#6c757d'})
+                             style={'color': '#6c757d'}),
+                    html.Div(id='rung-positioning-explanation', 
+                            style={'color': '#ffffff', 'marginTop': '8px', 'fontSize': '13px', 'fontStyle': 'italic'})
                 ], style={'marginBottom': '30px'}),
                 
                 # Current Price Display
@@ -261,6 +265,83 @@ class InteractiveLadderGUI:
                            style={'fontSize': '24px', 'color': '#28a745', 'marginBottom': '10px'})
                 ], style={'marginBottom': '30px'}),
 
+                # Trading Parameters
+                html.Div([
+                    html.Label("Trading Parameters", style={'fontWeight': 'bold', 'color': '#ffffff', 'marginBottom': '10px'}),
+                    
+                    # Trading Fee
+                    html.Div([
+                        html.Label("Trading Fee (%)", style={'fontWeight': 'bold', 'color': '#ffffff', 'fontSize': '14px'}),
+                        dcc.Input(
+                            id='trading-fee-input',
+                            type='number',
+                            value=0.075,
+                            step=0.001,
+                            min=0,
+                            max=1,
+                            style={'width': '100%', 'padding': '8px', 'marginBottom': '5px',
+                                   'backgroundColor': '#3d3d3d', 'border': '1px solid #555555',
+                                   'color': '#ffffff', 'borderRadius': '4px'}
+                        ),
+                        html.Small("Default: 0.075% (Binance spot trading fee)",
+                                 style={'color': '#6c757d'})
+                    ], style={'marginBottom': '15px'}),
+                    
+                    # Minimum Notional
+                    html.Div([
+                        html.Label("Minimum Notional per Trade ($)", style={'fontWeight': 'bold', 'color': '#ffffff', 'fontSize': '14px'}),
+                        dcc.Input(
+                            id='min-notional-input',
+                            type='number',
+                            value=10.0,
+                            step=1,
+                            min=1,
+                            max=1000,
+                            style={'width': '100%', 'padding': '8px', 'marginBottom': '5px',
+                                   'backgroundColor': '#3d3d3d', 'border': '1px solid #555555',
+                                   'color': '#ffffff', 'borderRadius': '4px'}
+                        ),
+                        html.Small("Default: $10 (minimum order size)",
+                                 style={'color': '#6c757d'})
+                    ], style={'marginBottom': '15px'})
+                ], style={'marginBottom': '30px'}),
+                
+                # Order Tables Section
+                html.Div([
+                    html.Label("Order Summary", style={'fontWeight': 'bold', 'color': '#ffffff', 'fontSize': '16px', 'marginBottom': '15px'}),
+                    
+                    # Buy Orders Table
+                    html.Div([
+                        html.H5("Buy Orders", style={'color': '#28a745', 'marginBottom': '10px'}),
+                        html.Div(id='buy-orders-table', style={'marginBottom': '20px'})
+                    ]),
+                    
+                    # Sell Orders Table
+                    html.Div([
+                        html.H5("Sell Orders", style={'color': '#dc3545', 'marginBottom': '10px'}),
+                        html.Div(id='sell-orders-table', style={'marginBottom': '20px'})
+                    ]),
+                    
+                    # Download Button
+                    html.Div([
+                        html.Button(
+                            'Download Orders to CSV',
+                            id='download-csv-btn',
+                            style={
+                                'backgroundColor': '#007bff',
+                                'color': 'white',
+                                'border': 'none',
+                                'padding': '10px 20px',
+                                'borderRadius': '4px',
+                                'cursor': 'pointer',
+                                'fontSize': '14px',
+                                'width': '100%'
+                            }
+                        ),
+                        dcc.Download(id="download-csv")
+                    ], style={'marginTop': '20px'})
+                ], style={'marginBottom': '30px'}),
+                
                 # Cryptocurrency Selection
                 html.Div([
                     html.Label("Cryptocurrency", style={'fontWeight': 'bold', 'color': '#ffffff'}),
@@ -435,6 +516,8 @@ class InteractiveLadderGUI:
              Output('monthly-fills-kpi', 'children'),
              Output('capital-efficiency-kpi', 'children'),
              Output('timeframe-kpi', 'children'),
+             Output('buy-orders-table', 'children'),
+             Output('sell-orders-table', 'children'),
              Output('calculation-cache', 'data')],
             [Input('aggression-slider', 'value'),
              Input('rungs-slider', 'value'),
@@ -443,19 +526,21 @@ class InteractiveLadderGUI:
              Input('quantity-distribution-dropdown', 'value'),
              Input('crypto-dropdown', 'value'),
              Input('rung-positioning-dropdown', 'value'),
+             Input('trading-fee-input', 'value'),
+             Input('min-notional-input', 'value'),
              Input('cache-buster', 'data')],
             [State('calculation-cache', 'data')]
         )
         def update_all_visualizations_callback(aggression_level, num_rungs, timeframe_slider,
                                              budget, quantity_distribution, crypto_symbol, rung_positioning,
-                                             cache_buster, cache_data):
+                                             trading_fee, min_notional, cache_buster, cache_data):
             # Map slider position to actual hours
             timeframe_map = {0: 24, 1: 168, 2: 720, 3: 4320, 4: 8760, 5: 26280, 6: 43800, 7: 87600}
             timeframe_hours = timeframe_map.get(timeframe_slider, 720)
             
             return self.update_all_visualizations(aggression_level, num_rungs, timeframe_hours,
                                                  budget, quantity_distribution, crypto_symbol, rung_positioning,
-                                                 cache_data)
+                                                 trading_fee, min_notional, cache_data)
         
         # Current price callback
         @self.app.callback(
@@ -475,11 +560,87 @@ class InteractiveLadderGUI:
             timeframe_labels = {0: "1 day", 1: "1 week", 2: "1 month", 3: "6 months", 
                               4: "1 year", 5: "3 years", 6: "5 years", 7: "max"}
             return f"Selected: {timeframe_labels.get(slider_value, 'Unknown')}"
+        
+        # CSV download callback
+        @self.app.callback(
+            Output("download-csv", "data"),
+            [Input("download-csv-btn", "n_clicks")],
+            [State('calculation-cache', 'data')]
+        )
+        def download_csv(n_clicks, cache_data):
+            if n_clicks is None or not cache_data or 'ladder_data' not in cache_data:
+                return dash.no_update
+            
+            try:
+                ladder_data = cache_data['ladder_data']
+                trading_fee = cache_data.get('trading_fee', 0.075)
+                min_notional = cache_data.get('min_notional', 10.0)
+                crypto_symbol = ladder_data.get('crypto_symbol', 'SOLUSDT')
+                
+                # Generate timestamp
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                # Create CSV content
+                csv_content = self._generate_csv_content(ladder_data, trading_fee, min_notional, crypto_symbol)
+                
+                # Create filename
+                filename = f"ladder_orders_{crypto_symbol}_{timestamp}.csv"
+                
+                return dict(content=csv_content, filename=filename)
+                
+            except Exception as e:
+                print(f"Error generating CSV: {e}")
+                return dash.no_update
+        
+        # Quantity Distribution Method Explanation Callback
+        @self.app.callback(
+            Output('quantity-distribution-explanation', 'children'),
+            [Input('quantity-distribution-dropdown', 'value')]
+        )
+        def update_quantity_distribution_explanation(method):
+            explanations = {
+                'kelly_optimized': "Kelly Criterion optimizes position sizes based on win probability and payoff ratio for maximum long-term growth.",
+                'adaptive_kelly': "Adaptive Kelly adjusts position sizes dynamically based on recent market performance and volatility.",
+                'volatility_weighted': "Volatility-weighted allocation reduces position sizes in high-volatility areas to manage risk.",
+                'sharpe_maximizing': "Sharpe-maximizing allocation optimizes the risk-adjusted return ratio across all ladder positions.",
+                'fibonacci_weighted': "Fibonacci-weighted allocation uses Fibonacci sequence ratios to distribute capital across rungs.",
+                'risk_parity': "Risk-parity allocation equalizes risk contribution from each ladder position.",
+                'price_weighted': "Price-weighted allocation distributes more capital to lower-priced rungs for better entry points.",
+                'equal_notional': "Equal notional allocation distributes the same dollar amount to each ladder rung.",
+                'equal_quantity': "Equal quantity allocation distributes the same number of coins to each ladder rung.",
+                'linear_increase': "Linear increase allocation gradually increases position sizes from lowest to highest rungs.",
+                'exponential_increase': "Exponential increase allocation exponentially increases position sizes across rungs.",
+                'probability_weighted': "Probability-weighted allocation allocates more capital to rungs with higher touch probabilities."
+            }
+            return explanations.get(method, "Method description not available.")
+        
+        # Rung Positioning Method Explanation Callback
+        @self.app.callback(
+            Output('rung-positioning-explanation', 'children'),
+            [Input('rung-positioning-dropdown', 'value')]
+        )
+        def update_rung_positioning_explanation(method):
+            explanations = {
+                'linear': "Linear spacing places rungs at equal percentage intervals from current price for consistent coverage.",
+                'support_resistance': "Support/resistance clustering positions rungs near key technical levels where price often reverses.",
+                'volume_profile': "Volume profile weighted positioning places rungs where high trading volume typically occurs.",
+                'touch_pattern': "Touch pattern analysis positions rungs based on historical price touch frequency patterns.",
+                'adaptive_probability': "Adaptive probability adjusts rung spacing based on real-time market volatility and conditions.",
+                'expected_value': "Expected value optimization positions rungs to maximize the expected profit from each position.",
+                'quantile': "Quantile-based positioning uses statistical quantiles to distribute rungs across price ranges.",
+                'risk_weighted': "Risk-weighted positioning adjusts rung spacing based on the risk profile of each price level.",
+                'exponential': "Exponential spacing places rungs closer to current price with increasing intervals further out.",
+                'logarithmic': "Logarithmic spacing uses logarithmic intervals for natural price distribution patterns.",
+                'fibonacci': "Fibonacci levels positioning places rungs at key Fibonacci retracement and extension levels.",
+                'dynamic_density': "Dynamic density adjusts rung density based on market volatility and trading activity."
+            }
+            return explanations.get(method, "Method description not available.")
 
     
     def update_all_visualizations(self, aggression_level, num_rungs, timeframe_hours,
                                  budget, quantity_distribution, crypto_symbol, rung_positioning,
-                                 cache_data):
+                                 trading_fee, min_notional, cache_data):
         """Main callback that updates all visualizations"""
         # Debounce updates
         current_time = time.time() * 1000
@@ -513,14 +674,20 @@ class InteractiveLadderGUI:
             # Calculate KPIs
             kpis = self.calculator.calculate_kpis(ladder_data)
             
+            # Create order tables
+            buy_table = self._create_buy_orders_table(ladder_data, trading_fee, min_notional)
+            sell_table = self._create_sell_orders_table(ladder_data, trading_fee, min_notional)
+            
             # Update cache
             cache_data = {
                 'timestamp': current_time,
                 'ladder_data': ladder_data,
-                'kpis': kpis
+                'kpis': kpis,
+                'trading_fee': trading_fee,
+                'min_notional': min_notional
             }
             
-            return (*figures, *kpis.values(), cache_data)
+            return (*figures, *kpis.values(), buy_table, sell_table, cache_data)
             
         except Exception as e:
             print(f"Error in visualization update: {e}")
@@ -543,7 +710,8 @@ class InteractiveLadderGUI:
             height=400
         )
         empty_figs = (empty_fig,) * 9
-        return (*empty_figs, "N/A", "N/A", "N/A", "N/A", cache_data)
+        empty_table = html.Div("No data available", style={'color': '#6c757d'})
+        return (*empty_figs, "N/A", "N/A", "N/A", "N/A", empty_table, empty_table, cache_data)
     
     def update_current_price(self, interval_n, crypto_symbol='SOLUSDT'):
         """Update current price display"""
@@ -552,7 +720,163 @@ class InteractiveLadderGUI:
             return f"${current_price:.2f}"
         except Exception as e:
             return f"Error: {e}"
-
+    
+    def _create_buy_orders_table(self, ladder_data, trading_fee, min_notional):
+        """Create buy orders table"""
+        try:
+            buy_prices = ladder_data['buy_prices']
+            buy_quantities = ladder_data['buy_quantities']
+            buy_allocations = ladder_data['buy_allocations']
+            
+            # Sort by price (lowest to highest)
+            sorted_indices = np.argsort(buy_prices)
+            prices = buy_prices[sorted_indices]
+            quantities = buy_quantities[sorted_indices]
+            allocations = buy_allocations[sorted_indices]
+            
+            # Create table rows
+            rows = []
+            for i, (price, qty, alloc) in enumerate(zip(prices, quantities, allocations), 1):
+                # Check if order meets minimum notional
+                meets_min = alloc >= min_notional
+                row_style = {'backgroundColor': '#2d2d2d'} if meets_min else {'backgroundColor': '#3d2d2d', 'opacity': '0.7'}
+                
+                rows.append(html.Tr([
+                    html.Td(f"#{i}", style={'color': '#ffffff', 'fontWeight': 'bold'}),
+                    html.Td(f"${price:.2f}", style={'color': '#28a745', 'fontWeight': 'bold'}),
+                    html.Td(f"{qty:.4f}", style={'color': '#ffffff'}),
+                    html.Td(f"${alloc:.2f}", style={'color': '#ffffff', 'fontWeight': 'bold'})
+                ], style=row_style))
+            
+            table = html.Table([
+                html.Thead([
+                    html.Tr([
+                        html.Th("Order", style={'color': '#ffffff', 'textAlign': 'center'}),
+                        html.Th("Price", style={'color': '#ffffff', 'textAlign': 'center'}),
+                        html.Th("Quantity", style={'color': '#ffffff', 'textAlign': 'center'}),
+                        html.Th("Notional", style={'color': '#ffffff', 'textAlign': 'center'})
+                    ])
+                ]),
+                html.Tbody(rows)
+            ], style={'width': '100%', 'borderCollapse': 'collapse', 'fontSize': '12px'})
+            
+            return table
+            
+        except Exception as e:
+            return html.Div(f"Error creating buy table: {e}", style={'color': '#dc3545'})
+    
+    def _create_sell_orders_table(self, ladder_data, trading_fee, min_notional):
+        """Create sell orders table"""
+        try:
+            sell_prices = ladder_data['sell_prices']
+            sell_quantities = ladder_data['sell_quantities']
+            sell_allocations = ladder_data['sell_allocations']
+            
+            # Sort by price (lowest to highest)
+            sorted_indices = np.argsort(sell_prices)
+            prices = sell_prices[sorted_indices]
+            quantities = sell_quantities[sorted_indices]
+            allocations = sell_allocations[sorted_indices]
+            
+            # Create table rows
+            rows = []
+            for i, (price, qty, alloc) in enumerate(zip(prices, quantities, allocations), 1):
+                # Check if order meets minimum notional
+                meets_min = alloc >= min_notional
+                row_style = {'backgroundColor': '#2d2d2d'} if meets_min else {'backgroundColor': '#3d2d2d', 'opacity': '0.7'}
+                
+                rows.append(html.Tr([
+                    html.Td(f"#{i}", style={'color': '#ffffff', 'fontWeight': 'bold'}),
+                    html.Td(f"${price:.2f}", style={'color': '#dc3545', 'fontWeight': 'bold'}),
+                    html.Td(f"{qty:.4f}", style={'color': '#ffffff'}),
+                    html.Td(f"${alloc:.2f}", style={'color': '#ffffff', 'fontWeight': 'bold'})
+                ], style=row_style))
+            
+            table = html.Table([
+                html.Thead([
+                    html.Tr([
+                        html.Th("Order", style={'color': '#ffffff', 'textAlign': 'center'}),
+                        html.Th("Price", style={'color': '#ffffff', 'textAlign': 'center'}),
+                        html.Th("Quantity", style={'color': '#ffffff', 'textAlign': 'center'}),
+                        html.Th("Notional", style={'color': '#ffffff', 'textAlign': 'center'})
+                    ])
+                ]),
+                html.Tbody(rows)
+            ], style={'width': '100%', 'borderCollapse': 'collapse', 'fontSize': '12px'})
+            
+            return table
+            
+        except Exception as e:
+            return html.Div(f"Error creating sell table: {e}", style={'color': '#dc3545'})
+    
+    def _generate_csv_content(self, ladder_data, trading_fee, min_notional, crypto_symbol):
+        """Generate CSV content for download"""
+        try:
+            import io
+            import csv
+            
+            output = io.StringIO()
+            writer = csv.writer(output)
+            
+            # Write header
+            writer.writerow([
+                'Order Type', 'Order #', 'Price ($)', 'Quantity', 'Notional ($)', 
+                'Trading Fee ($)', 'Net Notional ($)', 'Meets Min Notional', 
+                'Cryptocurrency', 'Timestamp'
+            ])
+            
+            # Get current timestamp
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Process buy orders
+            buy_prices = ladder_data['buy_prices']
+            buy_quantities = ladder_data['buy_quantities']
+            buy_allocations = ladder_data['buy_allocations']
+            
+            # Sort buy orders by price (lowest to highest)
+            buy_sorted_indices = np.argsort(buy_prices)
+            for i, idx in enumerate(buy_sorted_indices, 1):
+                price = buy_prices[idx]
+                qty = buy_quantities[idx]
+                notional = buy_allocations[idx]
+                fee = notional * (trading_fee / 100)
+                net_notional = notional - fee
+                meets_min = notional >= min_notional
+                
+                writer.writerow([
+                    'BUY', i, f"{price:.2f}", f"{qty:.4f}", f"{notional:.2f}",
+                    f"{fee:.2f}", f"{net_notional:.2f}", meets_min,
+                    crypto_symbol, timestamp
+                ])
+            
+            # Process sell orders
+            sell_prices = ladder_data['sell_prices']
+            sell_quantities = ladder_data['sell_quantities']
+            sell_allocations = ladder_data['sell_allocations']
+            
+            # Sort sell orders by price (lowest to highest)
+            sell_sorted_indices = np.argsort(sell_prices)
+            for i, idx in enumerate(sell_sorted_indices, 1):
+                price = sell_prices[idx]
+                qty = sell_quantities[idx]
+                notional = sell_allocations[idx]
+                fee = notional * (trading_fee / 100)
+                net_notional = notional - fee
+                meets_min = notional >= min_notional
+                
+                writer.writerow([
+                    'SELL', i, f"{price:.2f}", f"{qty:.4f}", f"{notional:.2f}",
+                    f"{fee:.2f}", f"{net_notional:.2f}", meets_min,
+                    crypto_symbol, timestamp
+                ])
+            
+            return output.getvalue()
+            
+        except Exception as e:
+            print(f"Error generating CSV content: {e}")
+            return "Error generating CSV content"
+    
     def run(self, debug=True, port=8050):
         """Run the application"""
         print(f"Starting Interactive Ladder GUI on http://localhost:{port}")
