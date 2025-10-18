@@ -1,5 +1,5 @@
 """
-Data fetcher for SOLUSDT from Binance API with local caching.
+Streamlined data fetcher for SOLUSDT from Binance API with decorator-based retry logic.
 """
 import requests
 import pandas as pd
@@ -7,7 +7,9 @@ import numpy as np
 from datetime import datetime, timedelta
 import os
 import yaml
-from typing import Tuple, Optional
+import time
+import functools
+from typing import Tuple, Optional, Callable, Any
 
 
 def load_config() -> dict:
@@ -16,13 +18,58 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
+def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0, 
+                      exponential: bool = True, exceptions: tuple = (Exception,)):
+    """
+    Decorator for retrying functions with exponential backoff.
+    
+    Args:
+        max_retries: Maximum number of retry attempts
+        base_delay: Base delay in seconds
+        exponential: Whether to use exponential backoff
+        exceptions: Tuple of exceptions to catch and retry
+    """
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            last_exception = None
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    
+                    if attempt == max_retries:
+                        break
+                    
+                    delay = base_delay * (2 ** attempt) if exponential else base_delay
+                    print(f"Attempt {attempt + 1} failed: {e}")
+                    print(f"Retrying in {delay:.1f} seconds...")
+                    time.sleep(delay)
+            
+            print(f"All {max_retries + 1} attempts failed")
+            raise last_exception
+        
+        return wrapper
+    return decorator
+
+
+@retry_with_backoff(max_retries=3, base_delay=1.0, exceptions=(requests.exceptions.RequestException,))
+def _make_api_request(url: str, params: dict, timeout: int = 30) -> dict:
+    """Make API request with retry logic."""
+    response = requests.get(url, params=params, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
+
+
 def fetch_klines(symbol: str, interval: str, start_time: int, end_time: int) -> pd.DataFrame:
     """
-    Fetch kline data from Binance API with optimized pagination for large datasets.
+    Fetch kline data from Binance API with optimized pagination.
     
     Args:
         symbol: Trading pair (e.g., 'SOLUSDT')
-        interval: Kline interval (e.g., '1m')
+        interval: Kline interval (e.g., '1h')
         start_time: Start timestamp in milliseconds
         end_time: End timestamp in milliseconds
     
@@ -30,40 +77,21 @@ def fetch_klines(symbol: str, interval: str, start_time: int, end_time: int) -> 
         DataFrame with OHLCV data
     """
     url = "https://api.binance.com/api/v3/klines"
-    
     all_data = []
     current_start = start_time
     batch_count = 0
     
     print(f"Fetching {symbol} data in batches...")
     
-    # Calculate total expected batches for progress
-    total_time_ms = end_time - start_time
-    if interval == '1h':
-        candles_per_batch = 1000
-        ms_per_candle = 60 * 60 * 1000  # 1 hour in ms
-    elif interval == '1m':
-        candles_per_batch = 1000
-        ms_per_candle = 60 * 1000  # 1 minute in ms
-    elif interval == '1d':
-        candles_per_batch = 1000
-        ms_per_candle = 24 * 60 * 60 * 1000  # 1 day in ms
-    else:
-        candles_per_batch = 1000
-        ms_per_candle = 60 * 60 * 1000  # Default to 1 hour
-    
-    expected_batches = int(np.ceil(total_time_ms / (candles_per_batch * ms_per_candle)))
+    # Calculate batch parameters
+    interval_ms = {'1h': 60*60*1000, '1m': 60*1000, '1d': 24*60*60*1000}.get(interval, 60*60*1000)
+    candles_per_batch = 1000
+    expected_batches = int(np.ceil((end_time - start_time) / (candles_per_batch * interval_ms)))
     print(f"Expected batches: ~{expected_batches}")
     
     # Validate time range
-    if total_time_ms <= 0:
+    if end_time <= start_time:
         raise ValueError(f"Invalid time range: start_time={start_time}, end_time={end_time}")
-    
-    # Check if time range is too large (more than 3 years)
-    max_time_ms = 3 * 365 * 24 * 60 * 60 * 1000  # 3 years in ms
-    if total_time_ms > max_time_ms:
-        print(f"Warning: Requesting {total_time_ms / (365 * 24 * 60 * 60 * 1000):.1f} years of data")
-        print("This may take a very long time and could hit API limits")
     
     consecutive_failures = 0
     max_consecutive_failures = 5
@@ -82,68 +110,32 @@ def fetch_klines(symbol: str, interval: str, start_time: int, end_time: int) -> 
             'limit': 1000
         }
         
-        # Retry logic with exponential backoff
-        max_retries = 3
-        retry_count = 0
-        backoff_seconds = 1
-        batch_success = False
-        
-        while retry_count < max_retries and not batch_success:
-            try:
-                response = requests.get(url, params=params, timeout=30)
-                response.raise_for_status()
-                
-                klines = response.json()
-                
-                # Validate response format
-                if not isinstance(klines, list):
-                    raise ValueError(f"Invalid response format: expected list, got {type(klines)}")
-                
-                if not klines:
-                    print(f"  No data returned for batch {batch_count}, stopping")
-                    break
-                
-                # Validate kline format (should have 12 fields)
-                if len(klines[0]) != 12:
-                    raise ValueError(f"Invalid kline format: expected 12 fields, got {len(klines[0])}")
-                
-                all_data.extend(klines)
-                
-                # Update start_time for next batch
-                current_start = klines[-1][6] + 1  # Close time + 1ms
-                
-                # Small delay to avoid rate limiting
-                import time
-                time.sleep(0.1)
-                
-                # Success - reset consecutive failures
-                consecutive_failures = 0
-                batch_success = True
-                
-            except requests.exceptions.RequestException as e:
-                retry_count += 1
-                consecutive_failures += 1
-                
-                if consecutive_failures >= max_consecutive_failures:
-                    print(f"Error: {consecutive_failures} consecutive failures")
-                    print("Aborting data fetch due to repeated API failures")
-                    raise
-                
-                if retry_count >= max_retries:
-                    print(f"Error fetching batch {batch_count} after {max_retries} retries: {e}")
-                    print("Aborting data fetch due to repeated failures")
-                    raise
-                else:
-                    print(f"Error fetching batch {batch_count} (attempt {retry_count}/{max_retries}): {e}")
-                    print(f"Retrying in {backoff_seconds} seconds...")
-                    import time
-                    time.sleep(backoff_seconds)
-                    # Exponential backoff: double the wait time for next retry
-                    backoff_seconds *= 2
+        try:
+            klines = _make_api_request(url, params)
             
-            except Exception as e:
-                print(f"Unexpected error in batch {batch_count}: {e}")
+            if not isinstance(klines, list):
+                raise ValueError(f"Invalid response format: expected list, got {type(klines)}")
+            
+            if not klines:
+                print(f"  No data returned for batch {batch_count}, stopping")
+                break
+            
+            if len(klines[0]) != 12:
+                raise ValueError(f"Invalid kline format: expected 12 fields, got {len(klines[0])}")
+            
+            all_data.extend(klines)
+            current_start = klines[-1][6] + 1  # Close time + 1ms
+            consecutive_failures = 0
+            
+            time.sleep(0.1)  # Rate limiting
+            
+        except Exception as e:
+            consecutive_failures += 1
+            if consecutive_failures >= max_consecutive_failures:
+                print(f"Error: {consecutive_failures} consecutive failures")
                 raise
+            print(f"Error fetching batch {batch_count}: {e}")
+            raise
     
     if not all_data:
         raise ValueError("No data retrieved from Binance API")
@@ -157,35 +149,20 @@ def fetch_klines(symbol: str, interval: str, start_time: int, end_time: int) -> 
         'taker_buy_quote', 'ignore'
     ])
     
-    # Convert to proper types with error handling
-    try:
-        df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-        df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
-        
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-        # Check for any NaN values after conversion
-        nan_counts = df[['open', 'high', 'low', 'close', 'volume']].isna().sum()
-        if nan_counts.any():
-            print(f"Warning: Found NaN values after conversion: {nan_counts.to_dict()}")
-            # Remove rows with NaN values
-            df = df.dropna(subset=['open', 'high', 'low', 'close', 'volume'])
-            print(f"Removed {nan_counts.sum()} rows with NaN values")
-        
-        # Validate price data integrity
-        invalid_rows = (df['high'] < df['low']) | (df['open'] <= 0) | (df['close'] <= 0)
-        if invalid_rows.any():
-            print(f"Warning: Found {invalid_rows.sum()} rows with invalid price data")
-            df = df[~invalid_rows]
-            print(f"Removed {invalid_rows.sum()} rows with invalid prices")
-        
-        if len(df) == 0:
-            raise ValueError("No valid data remaining after cleaning")
-        
-    except Exception as e:
-        print(f"Error processing data: {e}")
-        raise
+    # Convert to proper types
+    df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
+    df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
+    
+    for col in ['open', 'high', 'low', 'close', 'volume']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # Clean data
+    df = df.dropna(subset=['open', 'high', 'low', 'close', 'volume'])
+    invalid_rows = (df['high'] < df['low']) | (df['open'] <= 0) | (df['close'] <= 0)
+    df = df[~invalid_rows]
+    
+    if len(df) == 0:
+        raise ValueError("No valid data remaining after cleaning")
     
     return df[['open_time', 'open', 'high', 'low', 'close', 'volume']]
 
@@ -215,11 +192,10 @@ def fetch_solusdt_data(force_refresh: bool = False) -> pd.DataFrame:
         DataFrame with OHLCV data
     """
     config = load_config()
-    
     symbol = config['symbol']
     lookback_days = config['lookback_days']
     cache_hours = config['cache_hours']
-    interval = '1h'  # Hardcoded to 1h
+    interval = '1h'
     
     cache_file = get_cache_filename(symbol, interval, lookback_days)
     
@@ -229,11 +205,9 @@ def fetch_solusdt_data(force_refresh: bool = False) -> pd.DataFrame:
         try:
             df = pd.read_csv(cache_file, parse_dates=['open_time'])
             
-            # Validate cached data integrity
-            if len(df) == 0:
-                print("Warning: Cached data is empty, will refetch")
-            elif df[['open', 'high', 'low', 'close', 'volume']].isna().any().any():
-                print("Warning: Cached data contains NaN values, will refetch")
+            # Validate cached data
+            if len(df) == 0 or df[['open', 'high', 'low', 'close', 'volume']].isna().any().any():
+                print("Warning: Cached data invalid, will refetch")
             elif (df['high'] < df['low']).any() or (df['open'] <= 0).any() or (df['close'] <= 0).any():
                 print("Warning: Cached data contains invalid prices, will refetch")
             else:
@@ -241,7 +215,6 @@ def fetch_solusdt_data(force_refresh: bool = False) -> pd.DataFrame:
                 return df
         except Exception as e:
             print(f"Error loading cached data: {e}")
-            print("Will refetch data from API")
     
     # Calculate time range
     end_time = datetime.now()
@@ -250,11 +223,7 @@ def fetch_solusdt_data(force_refresh: bool = False) -> pd.DataFrame:
     print(f"Fetching {symbol} data from {start_time} to {end_time}")
     print(f"Interval: {interval}, Lookback: {lookback_days} days")
     
-    # Estimate total candles for progress reporting
-    estimated_candles = lookback_days * 24
-    print(f"Estimated candles to fetch: ~{estimated_candles:,}")
-    
-    # Try to fetch data with fallback for shorter periods if needed
+    # Try to fetch data with fallback for shorter periods
     max_attempts = 3
     attempt = 0
     
@@ -262,7 +231,7 @@ def fetch_solusdt_data(force_refresh: bool = False) -> pd.DataFrame:
         try:
             # Adjust lookback period if this is a retry
             if attempt > 0:
-                fallback_days = max(90, lookback_days // (2 ** attempt))  # Minimum 90 days
+                fallback_days = max(90, lookback_days // (2 ** attempt))
                 fallback_start_time = end_time - timedelta(days=fallback_days)
                 print(f"Retry attempt {attempt + 1}: Trying shorter period ({fallback_days} days)")
             else:
@@ -276,18 +245,8 @@ def fetch_solusdt_data(force_refresh: bool = False) -> pd.DataFrame:
                 end_time=int(end_time.timestamp() * 1000)
             )
             
-            # Validate fetched data
             if len(df) == 0:
                 raise ValueError("No data returned from API")
-            
-            # Check data quality
-            nan_counts = df[['open', 'high', 'low', 'close', 'volume']].isna().sum()
-            if nan_counts.any():
-                print(f"Warning: API returned data with NaN values: {nan_counts.to_dict()}")
-            
-            invalid_prices = (df['high'] < df['low']) | (df['open'] <= 0) | (df['close'] <= 0)
-            if invalid_prices.any():
-                print(f"Warning: API returned {invalid_prices.sum()} rows with invalid prices")
             
             print(f"Successfully fetched {len(df)} candles")
             print(f"Date range: {df['open_time'].min()} to {df['open_time'].max()}")
@@ -309,57 +268,30 @@ def fetch_solusdt_data(force_refresh: bool = False) -> pd.DataFrame:
                 raise
             
             print(f"Retrying with shorter time period...")
-            import time
-            time.sleep(2 ** attempt)  # Exponential backoff between attempts
+            time.sleep(2 ** attempt)
 
 
+@retry_with_backoff(max_retries=3, base_delay=1.0, exceptions=(requests.exceptions.RequestException,))
 def get_current_price() -> float:
-    """Get current SOLUSDT price from Binance with error handling"""
+    """Get current SOLUSDT price from Binance."""
     url = "https://api.binance.com/api/v3/ticker/price"
     params = {'symbol': 'SOLUSDT'}
     
-    max_retries = 3
-    retry_count = 0
+    data = _make_api_request(url, params, timeout=10)
     
-    while retry_count < max_retries:
-        try:
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            # Validate response format
-            if 'price' not in data:
-                raise ValueError(f"Invalid response format: missing 'price' field")
-            
-            price = float(data['price'])
-            
-            # Validate price is reasonable
-            if price <= 0:
-                raise ValueError(f"Invalid price: {price}")
-            
-            if price > 10000:  # SOLUSDT shouldn't be > $10,000
-                raise ValueError(f"Unrealistic price: {price}")
-            
-            print(f"Current SOLUSDT price: ${price:.2f}")
-            return price
-            
-        except requests.exceptions.RequestException as e:
-            retry_count += 1
-            if retry_count >= max_retries:
-                print(f"Error fetching current price after {max_retries} retries: {e}")
-                print("Using fallback price estimation from cached data")
-                return get_fallback_price()
-            else:
-                print(f"Error fetching current price (attempt {retry_count}/{max_retries}): {e}")
-                import time
-                time.sleep(1)
-        
-        except Exception as e:
-            print(f"Unexpected error fetching current price: {e}")
-            return get_fallback_price()
+    if 'price' not in data:
+        raise ValueError(f"Invalid response format: missing 'price' field")
     
-    return get_fallback_price()
+    price = float(data['price'])
+    
+    if price <= 0:
+        raise ValueError(f"Invalid price: {price}")
+    
+    if price > 10000:  # SOLUSDT shouldn't be > $10,000
+        raise ValueError(f"Unrealistic price: {price}")
+    
+    print(f"Current SOLUSDT price: ${price:.2f}")
+    return price
 
 
 def get_fallback_price() -> float:

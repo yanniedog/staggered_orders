@@ -1,6 +1,6 @@
 """
 Simplified main orchestrator for the staggered order ladder system.
-Single timeframe (1h) analysis with paired orders and scenario analysis.
+Consolidated imports and streamlined orchestration logic.
 """
 import yaml
 from typing import Dict
@@ -10,25 +10,15 @@ from datetime import datetime
 import warnings
 import os
 
-# Import our modules
+# Import consolidated modules
 from data_fetcher import fetch_solusdt_data, get_current_price
-from touch_analysis import analyze_touch_probabilities
-from touch_analysis_sell import analyze_upward_touch_probabilities
+from touch_analysis import analyze_touch_probabilities, analyze_upward_touch_probabilities
 from weibull_fit import fit_weibull_tail, validate_fit_quality
-from ladder_depths_buy import calculate_ladder_depths, validate_ladder_depths
-from ladder_depths_sell import calculate_sell_ladder_depths, validate_sell_ladder_depths
-from size_optimizer_buy import optimize_sizes
-from size_optimizer_sell import optimize_sell_sizes
+from ladder_depths import calculate_ladder_depths, validate_ladder_depths, calculate_sell_ladder_depths, validate_sell_ladder_depths
+from size_optimizer import optimize_sizes, optimize_sell_sizes
 from order_builder import build_paired_orders, export_paired_orders_csv, export_orders_csv
-from visualizer import create_all_visualizations
-from excel_export import create_excel_workbook
-
-# Import scenario analysis modules
-from scenario_analyzer import analyze_profit_scenarios, get_optimal_scenario
-from sensitivity_analyzer import analyze_rung_sensitivity, analyze_depth_sensitivity, analyze_combined_sensitivity
-from scenario_visualizer import create_all_scenario_visualizations
-
-# Import validation and logging
+from output import create_all_visualizations, create_excel_workbook
+from analysis import analyze_profit_scenarios, get_optimal_scenario, analyze_rung_sensitivity, analyze_depth_sensitivity, analyze_combined_sensitivity, create_all_scenario_visualizations
 from validation import validate_analysis_results
 from logger import LoggingContext
 
@@ -140,8 +130,20 @@ def print_summary(config: dict, theta: float, p: float, fit_metrics: dict,
     print("\n" + "=" * 60)
 
 
+def run_analysis_step(step_name: str, func, *args, **kwargs):
+    """Run an analysis step with error handling and logging"""
+    print(f"\n{step_name}...")
+    try:
+        result = func(*args, **kwargs)
+        print(f"[OK] {step_name} completed successfully")
+        return result
+    except Exception as e:
+        print(f"[ERROR] Error in {step_name}: {e}")
+        raise
+
+
 def main():
-    """Main execution function - single timeframe analysis"""
+    """Main execution function - streamlined orchestration"""
     symbol = "SOLUSDT"
     
     with LoggingContext(output_dir="output", symbol=symbol) as logger:
@@ -151,8 +153,7 @@ def main():
             logger.log_analysis_step("Starting staggered order ladder analysis", "SUCCESS")
             
             # Load configuration
-            print("Loading configuration...")
-            config = load_config()
+            config = run_analysis_step("Loading configuration", load_config)
             logger.log_configuration(config)
             
             # Create output directory
@@ -169,86 +170,39 @@ def main():
                 "timeframe": "1h"
             })
             
-            # Fetch data for 1h timeframe
-            print(f"\nFetching 1h data...")
-            try:
-                df = fetch_solusdt_data()
-                print(f"Loaded {len(df)} candles from {df['open_time'].min()} to {df['open_time'].max()}")
-                
-                if logger:
-                    logger.log_data_summary({
-                        "timeframe": "1h",
-                        "candles": len(df),
-                        "start_date": str(df['open_time'].min()),
-                        "end_date": str(df['open_time'].max())
-                    })
-            except Exception as e:
-                print(f"Error fetching data: {e}")
-                if logger:
-                    logger.log_error(e, "Data fetching")
-                raise
+            # Fetch data
+            df = run_analysis_step("Fetching 1h data", fetch_solusdt_data)
+            print(f"Loaded {len(df)} candles from {df['open_time'].min()} to {df['open_time'].max()}")
+            
+            if logger:
+                logger.log_data_summary({
+                    "timeframe": "1h",
+                    "candles": len(df),
+                    "start_date": str(df['open_time'].min()),
+                    "end_date": str(df['open_time'].max())
+                })
             
             # Get current price
-            try:
-                current_price = get_current_price()
-                print(f"Current {config['symbol']} price: ${current_price:.2f}")
-            except Exception as e:
-                print(f"Error getting current price: {e}")
-                if logger:
-                    logger.log_error(e, "Current price fetching")
-                raise
+            current_price = run_analysis_step("Getting current price", get_current_price)
+            print(f"Current {config['symbol']} price: ${current_price:.2f}")
             
-            # Analyze touch probabilities (buy side)
-            print(f"\nAnalyzing buy-side touch probabilities...")
-            try:
-                depths, empirical_probs = analyze_touch_probabilities(df, config['max_analysis_hours'], '1h')
-                
-                if logger:
-                    logger.log_analysis_step("Buy-side touch probability analysis completed", "SUCCESS")
-            except Exception as e:
-                print(f"Error in buy-side touch analysis: {e}")
-                if logger:
-                    logger.log_error(e, "Buy-side touch analysis")
-                raise
+            # Analyze touch probabilities
+            depths, empirical_probs = run_analysis_step("Analyzing buy-side touch probabilities", 
+                                                       analyze_touch_probabilities, df, config['max_analysis_hours'], '1h')
             
-            # Analyze upward touch probabilities (sell side)
-            print(f"\nAnalyzing sell-side touch probabilities...")
-            try:
-                depths_upward, empirical_probs_upward = analyze_upward_touch_probabilities(df, config['max_analysis_hours'], '1h')
-                
-                if logger:
-                    logger.log_analysis_step("Sell-side touch probability analysis completed", "SUCCESS")
-            except Exception as e:
-                print(f"Error in sell-side touch analysis: {e}")
-                if logger:
-                    logger.log_error(e, "Sell-side touch analysis")
-                raise
+            depths_upward, empirical_probs_upward = run_analysis_step("Analyzing sell-side touch probabilities", 
+                                                                     analyze_upward_touch_probabilities, df, config['max_analysis_hours'], '1h')
             
-            # Fit Weibull distribution for buy side
-            print("\nFitting Weibull tail distribution for buy side...")
-            try:
-                theta, p, fit_metrics = fit_weibull_tail(depths, empirical_probs)
-                
-                if logger:
-                    logger.log_weibull_fit("buy", fit_metrics)
-            except Exception as e:
-                print(f"Error fitting buy-side Weibull: {e}")
-                if logger:
-                    logger.log_error(e, "Buy-side Weibull fitting")
-                raise
+            # Fit Weibull distributions
+            theta, p, fit_metrics = run_analysis_step("Fitting buy-side Weibull distribution", 
+                                                     fit_weibull_tail, depths, empirical_probs)
             
-            # Fit Weibull distribution for sell side
-            print("\nFitting Weibull tail distribution for sell side...")
-            try:
-                theta_sell, p_sell, fit_metrics_sell = fit_weibull_tail(depths_upward, empirical_probs_upward)
-                
-                if logger:
-                    logger.log_weibull_fit("sell", fit_metrics_sell)
-            except Exception as e:
-                print(f"Error fitting sell-side Weibull: {e}")
-                if logger:
-                    logger.log_error(e, "Sell-side Weibull fitting")
-                raise
+            theta_sell, p_sell, fit_metrics_sell = run_analysis_step("Fitting sell-side Weibull distribution", 
+                                                                     fit_weibull_tail, depths_upward, empirical_probs_upward)
+            
+            if logger:
+                logger.log_weibull_fit("buy", fit_metrics)
+                logger.log_weibull_fit("sell", fit_metrics_sell)
             
             # Validate fit quality
             min_quality = config.get('min_fit_quality', 0.90)
@@ -263,84 +217,72 @@ def main():
                     logger.log_problem(f"Sell-side fit quality below threshold ({fit_metrics_sell['r_squared']:.3f} < {min_quality:.2f})", "WARNING")
             
             # Analyze profit scenarios
-            print("\nAnalyzing profit scenarios...")
-            scenarios_df = analyze_profit_scenarios(
-                theta, p, theta_sell, p_sell, config['budget_usd'], 
-                current_price, config['min_notional'], config.get('risk_adjustment_factor', 1.5),
-                config.get('total_cost_pct', 0.25), df, config.get('max_analysis_hours', 720), '1h'
-            )
+            scenarios_df = run_analysis_step("Analyzing profit scenarios", analyze_profit_scenarios,
+                                           theta, p, theta_sell, p_sell, config['budget_usd'], 
+                                           current_price, config['min_notional'], config.get('risk_adjustment_factor', 1.5),
+                                           config.get('total_cost_pct', 0.25), df, config.get('max_analysis_hours', 720), '1h')
             
             if logger:
                 logger.log_scenario_results(scenarios_df.to_dict('records'))
                 logger.log_analysis_step("Profit scenario analysis completed", "SUCCESS")
             
-            # Get optimal scenario - FORCE VERY AGGRESSIVE FOR DEEP LADDERS
-            # Find the scenario with highest profit target (200% profit = very aggressive)
+            # Get optimal scenario
             very_aggressive_scenarios = scenarios_df[scenarios_df['profit_target_pct'] >= 200.0]
+            print(f"Very aggressive scenarios found: {len(very_aggressive_scenarios)}")
+            
             if len(very_aggressive_scenarios) > 0:
-                # Select the very aggressive scenario with best expected return
-                optimal_scenario = get_optimal_scenario(very_aggressive_scenarios, 'expected_profit_per_dollar_per_month')
+                optimal_scenario = get_optimal_scenario(very_aggressive_scenarios, 'expected_profit_per_dollar')
                 print(f"FORCED SELECTION: Using very aggressive scenario for deep ladder demonstration")
             else:
-                # Fallback to normal optimal selection
-                optimal_scenario = get_optimal_scenario(scenarios_df, 'expected_profit_per_dollar_per_month')
+                # Use the highest profit scenario available
+                optimal_scenario = get_optimal_scenario(scenarios_df, 'expected_profit_per_dollar')
+                print(f"Using highest profit scenario available: {optimal_scenario['profit_target_pct']:.1f}%")
             
             if logger:
                 logger.log_analysis_step(f"Optimal scenario selected: {optimal_scenario['profit_target_pct']:.1f}% profit", "SUCCESS")
             
-            # Calculate ladder depths for optimal scenario with expected value positioning
-            print(f"\nCalculating ladder depths for optimal scenario: {optimal_scenario['profit_target_pct']:.1f}% profit...")
-            ladder_depths = calculate_ladder_depths(
-                theta, p, 
-                num_rungs=int(optimal_scenario['num_rungs']),
-                d_min=optimal_scenario['buy_depth_min'],
-                d_max=optimal_scenario['buy_depth_max'],
-                method='expected_value',
-                current_price=current_price,
-                profit_target_pct=optimal_scenario['profit_target_pct']
-            )
+            # Calculate ladder depths
+            ladder_depths = run_analysis_step(f"Calculating ladder depths for {optimal_scenario['profit_target_pct']:.1f}% profit", 
+                                            calculate_ladder_depths, theta, p, 
+                                            num_rungs=int(optimal_scenario['num_rungs']),
+                                            d_min=optimal_scenario['buy_depth_min'],
+                                            d_max=optimal_scenario['buy_depth_max'],
+                                            method='expected_value',
+                                            current_price=current_price,
+                                            profit_target_pct=optimal_scenario['profit_target_pct'])
             validate_ladder_depths(ladder_depths)
             
-            # Optimize buy sizes with Kelly + monotonicity
-            print("\nOptimizing buy size allocations...")
-            allocations, alpha, expected_returns = optimize_sizes(
-                ladder_depths, theta, p, config['budget_usd'],
-                use_kelly=True
-            )
+            # Optimize buy sizes
+            allocations, alpha, expected_returns = run_analysis_step("Optimizing buy size allocations", 
+                                                                   optimize_sizes, ladder_depths, theta, p, config['budget_usd'], use_kelly=True)
             
-            # Calculate probability-optimized sell targets
-            print("\nCalculating probability-optimized sell targets...")
+            # Calculate sell targets
             risk_adjustment_factor = config.get('risk_adjustment_factor', 1.5)
-            
-            sell_depths, profit_targets = calculate_sell_ladder_depths(
-                theta_sell, p_sell, ladder_depths, optimal_scenario['profit_target_pct'], 
-                risk_adjustment_factor,
-                d_min_sell=optimal_scenario['sell_depth_min'],
-                d_max_sell=optimal_scenario['sell_depth_max'],
-                method='probability_optimized',
-                current_price=current_price,
-                mean_reversion_rate=0.5  # Could be calculated from historical data
-            )
+            sell_depths, profit_targets = run_analysis_step("Calculating quantile-based sell targets for steeper slope", 
+                                                           calculate_sell_ladder_depths, theta_sell, p_sell, ladder_depths, 
+                                                           optimal_scenario['profit_target_pct'], risk_adjustment_factor,
+                                                           d_min_sell=optimal_scenario['sell_depth_min'],
+                                                           d_max_sell=optimal_scenario['sell_depth_max'],
+                                                           method='quantile',
+                                                           current_price=current_price,
+                                                           mean_reversion_rate=0.5)
             validate_sell_ladder_depths(sell_depths, profit_targets)
             
-            # Independent sell side optimization
-            print("\nOptimizing sell size allocations independently...")
+            # Optimize sell sizes
             buy_quantities = allocations / (current_price * (1 - ladder_depths / 100))
             sell_prices = current_price * (1 + sell_depths / 100)
             
-            sell_quantities, actual_profits, alpha_sell = optimize_sell_sizes(
-                buy_quantities, current_price * (1 - ladder_depths / 100), 
-                sell_depths, sell_prices, profit_targets, theta_sell, p_sell,
-                independent_optimization=True
-            )
+            sell_quantities, actual_profits, alpha_sell = run_analysis_step("Optimizing sell size allocations", 
+                                                                            optimize_sell_sizes, buy_quantities, 
+                                                                            current_price * (1 - ladder_depths / 100), 
+                                                                            sell_depths, sell_prices, profit_targets, 
+                                                                            theta_sell, p_sell, independent_optimization=True)
             
             # Build paired orders
-            print("\nBuilding paired buy-sell order specifications...")
-            paired_orders_df = build_paired_orders(
-                ladder_depths, allocations, sell_depths, sell_quantities, 
-                profit_targets, current_price, theta, p, theta_sell, p_sell,
-                config['max_analysis_hours']
-            )
+            paired_orders_df = run_analysis_step("Building paired buy-sell order specifications", 
+                                                build_paired_orders, ladder_depths, allocations, sell_depths, 
+                                                sell_quantities, profit_targets, current_price, theta, p, 
+                                                theta_sell, p_sell, config['max_analysis_hours'])
             
             if logger:
                 logger.log_order_results({
@@ -351,21 +293,18 @@ def main():
                 logger.log_analysis_step("Paired order generation completed", "SUCCESS")
             
             # Perform sensitivity analysis
-            print("\nPerforming sensitivity analysis...")
-            rung_sensitivity_df = analyze_rung_sensitivity(
-                theta, p, theta_sell, p_sell, config['budget_usd'], 
-                current_price, optimal_scenario['profit_target_pct']
-            )
+            rung_sensitivity_df = run_analysis_step("Performing rung sensitivity analysis", 
+                                                   analyze_rung_sensitivity, theta, p, theta_sell, p_sell, 
+                                                   config['budget_usd'], current_price, optimal_scenario['profit_target_pct'])
             
-            depth_sensitivity_df = analyze_depth_sensitivity(
-                theta, p, theta_sell, p_sell, config['budget_usd'], 
-                current_price, int(optimal_scenario['num_rungs']), optimal_scenario['profit_target_pct']
-            )
+            depth_sensitivity_df = run_analysis_step("Performing depth sensitivity analysis", 
+                                                    analyze_depth_sensitivity, theta, p, theta_sell, p_sell, 
+                                                    config['budget_usd'], current_price, int(optimal_scenario['num_rungs']), 
+                                                    optimal_scenario['profit_target_pct'])
             
-            combined_sensitivity_df = analyze_combined_sensitivity(
-                theta, p, theta_sell, p_sell, config['budget_usd'], 
-                current_price, optimal_scenario['profit_target_pct']
-            )
+            combined_sensitivity_df = run_analysis_step("Performing combined sensitivity analysis", 
+                                                       analyze_combined_sensitivity, theta, p, theta_sell, p_sell, 
+                                                       config['budget_usd'], current_price, optimal_scenario['profit_target_pct'])
             
             if logger:
                 logger.log_sensitivity_results({
@@ -375,11 +314,10 @@ def main():
                 })
                 logger.log_analysis_step("Sensitivity analysis completed", "SUCCESS")
             
-            # Perform comprehensive validation
-            print("\nPerforming comprehensive validation...")
-            validation_passed = validate_analysis_results(
-                scenarios_df, optimal_scenario, fit_metrics, fit_metrics_sell, paired_orders_df, logger
-            )
+            # Perform validation
+            validation_passed = run_analysis_step("Performing comprehensive validation", 
+                                                 validate_analysis_results, scenarios_df, optimal_scenario, 
+                                                 fit_metrics, fit_metrics_sell, paired_orders_df, logger)
             
             if logger:
                 logger.log_validation_results({
@@ -391,49 +329,37 @@ def main():
                 logger.log_analysis_step("Comprehensive validation completed", "SUCCESS")
             
             # Export results
-            print(f"\nExporting results...")
-            
-            # Export paired orders CSV
-            export_paired_orders_csv(paired_orders_df, 'output/paired_orders.csv')
+            run_analysis_step("Exporting paired orders CSV", export_paired_orders_csv, paired_orders_df, 'output/paired_orders.csv')
             
             # Export original CSV for backward compatibility
-            export_orders_csv(paired_orders_df[['rung', 'buy_depth_pct', 'buy_price', 'buy_qty', 'buy_notional']].rename(columns={
-                'buy_depth_pct': 'depth_pct', 'buy_price': 'limit_price', 'buy_qty': 'quantity', 'buy_notional': 'notional'
-            }))
+            run_analysis_step("Exporting orders CSV", export_orders_csv, 
+                             paired_orders_df[['rung', 'buy_depth_pct', 'buy_price', 'buy_qty', 'buy_notional']].rename(columns={
+                                 'buy_depth_pct': 'depth_pct', 'buy_price': 'limit_price', 'buy_qty': 'quantity', 'buy_notional': 'notional'
+                             }))
             
-            # Export scenario analysis data
+            # Export analysis data
             scenarios_df.to_csv('output/scenario_comparison.csv', index=False)
-            
-            # Export sensitivity analysis
             rung_sensitivity_df.to_csv('output/rung_sensitivity.csv', index=False)
             depth_sensitivity_df.to_csv('output/depth_sensitivity.csv', index=False)
             combined_sensitivity_df.to_csv('output/combined_sensitivity.csv', index=False)
             
-            # Create comprehensive Excel workbook
-            print(f"\nCreating comprehensive Excel workbook...")
-            create_excel_workbook(
-                paired_orders_df, ladder_depths, allocations, 
-                theta, p, fit_metrics, 
-                config['budget_usd'], current_price,
-                theta_sell, p_sell, fit_metrics_sell, 
-                sell_depths, actual_profits,
-                scenarios_df, rung_sensitivity_df, 
-                depth_sensitivity_df, combined_sensitivity_df
-            )
+            # Create Excel workbook
+            run_analysis_step("Creating comprehensive Excel workbook", create_excel_workbook,
+                             paired_orders_df, ladder_depths, allocations, theta, p, fit_metrics, 
+                             config['budget_usd'], current_price, theta_sell, p_sell, fit_metrics_sell, 
+                             sell_depths, actual_profits, scenarios_df, rung_sensitivity_df, 
+                             depth_sensitivity_df, combined_sensitivity_df)
             
             # Create visualizations
-            print(f"\nCreating visualizations...")
-            create_all_visualizations(
-                depths, empirical_probs, theta, p, fit_metrics,
-                ladder_depths, allocations, paired_orders_df,
-                depths_upward, empirical_probs_upward, theta_sell, p_sell, fit_metrics_sell,
-                sell_depths, actual_profits, scenarios_df, optimal_scenario
-            )
+            run_analysis_step("Creating visualizations", create_all_visualizations,
+                             depths, empirical_probs, theta, p, fit_metrics,
+                             ladder_depths, allocations, paired_orders_df,
+                             depths_upward, empirical_probs_upward, theta_sell, p_sell, fit_metrics_sell,
+                             sell_depths, actual_profits, scenarios_df, optimal_scenario)
             
             # Create scenario analysis visualizations
-            create_all_scenario_visualizations(
-                scenarios_df, rung_sensitivity_df, depth_sensitivity_df, combined_sensitivity_df
-            )
+            run_analysis_step("Creating scenario analysis visualizations", create_all_scenario_visualizations,
+                             scenarios_df, rung_sensitivity_df, depth_sensitivity_df, combined_sensitivity_df)
             
             # Print summary
             print_summary(config, theta, p, fit_metrics, 
