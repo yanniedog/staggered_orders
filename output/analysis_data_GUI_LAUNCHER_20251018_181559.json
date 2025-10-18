@@ -1,0 +1,34 @@
+{
+  "run_id": "20251018_181559",
+  "symbol": "GUI_LAUNCHER",
+  "start_time": "2025-10-18T18:15:59.498982",
+  "problems": [],
+  "warnings": [],
+  "analysis_steps": [
+    {
+      "step": "Starting GUI launcher",
+      "status": "STARTED",
+      "timestamp": "2025-10-18T18:15:59.498982",
+      "details": {}
+    },
+    {
+      "step": "Dependencies OK",
+      "status": "SUCCESS",
+      "timestamp": "2025-10-18T18:15:59.511684",
+      "details": {}
+    },
+    {
+      "step": "GUI started",
+      "status": "SUCCESS",
+      "timestamp": "2025-10-18T18:29:59.842676",
+      "details": {}
+    }
+  ],
+  "configuration": {},
+  "data_summary": {},
+  "validation_results": {},
+  "performance_metrics": {},
+  "errors": [],
+  "end_time": "2025-10-18T18:29:59.842676",
+  "duration_seconds": 840.343694
+}

@@ -224,8 +224,18 @@ def get_current_price(symbol: str = 'SOLUSDT') -> float:
         raise ValueError("Invalid response: missing 'price'")
     
     price = float(data['price'])
-    if price <= 0 or (symbol in ['BTCUSDT', 'ETHUSDT'] and price > 100000) or (symbol not in ['BTCUSDT', 'ETHUSDT'] and price > 10000):
+    
+    # Validate price is positive and reasonable
+    if price <= 0:
         raise ValueError(f"Invalid price: {price}")
+    
+    # Sanity check: prices shouldn't be absurdly high (over $1M for BTC, $100K for ETH, $50K for others)
+    if symbol == 'BTCUSDT' and price > 1000000:
+        raise ValueError(f"Price seems unreasonably high for {symbol}: {price}")
+    elif symbol == 'ETHUSDT' and price > 100000:
+        raise ValueError(f"Price seems unreasonably high for {symbol}: {price}")
+    elif symbol not in ['BTCUSDT', 'ETHUSDT'] and price > 50000:
+        raise ValueError(f"Price seems unreasonably high for {symbol}: {price}")
     
     print(f"Current {symbol} price: ${price:.2f}")
     return price

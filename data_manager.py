@@ -143,16 +143,22 @@ class DataManager:
             return None
 
     def get_current_price(self, symbol: str = 'SOLUSDT') -> float:
-        """Get current cryptocurrency price"""
-        if self.current_price is None:
-            try:
-                from data_fetcher import get_current_price
-                self.current_price = get_current_price(symbol)
-            except Exception as e:
-                print(f"Warning: Could not fetch current price for {symbol}: {e}")
-                self.current_price = 100.0  # Fallback
-
-        return self.current_price
+        """Get current cryptocurrency price for the specified symbol"""
+        try:
+            from data_fetcher import get_current_price
+            price = get_current_price(symbol)
+            # Cache the most recent price
+            self.current_price = price
+            return price
+        except Exception as e:
+            print(f"Warning: Could not fetch current price for {symbol}: {e}")
+            # Return cached price if available, otherwise fallback
+            if self.current_price is not None:
+                print(f"Using cached price: ${self.current_price:.2f}")
+                return self.current_price
+            else:
+                print("No cached price available, using fallback: $100.00")
+                return 100.0
 
     def clear_cache(self):
         """Clear in-memory data cache"""

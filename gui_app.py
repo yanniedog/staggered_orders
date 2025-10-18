@@ -173,8 +173,13 @@ class InteractiveLadderGUI:
                             6: "5y",
                             7: "max"
                         },
-                        tooltip={"placement": "bottom", "always_visible": True}
+                        tooltip={
+                            "placement": "bottom", 
+                            "always_visible": True,
+                            "template": "{value}"
+                        }
                     ),
+                    html.Div(id='timeframe-label', style={'color': '#ffffff', 'marginTop': '10px', 'fontSize': '14px'}),
                     html.Small("Historical analysis window", 
                              style={'color': '#6c757d'})
                 ], style={'marginBottom': '30px'}),
@@ -201,17 +206,22 @@ class InteractiveLadderGUI:
                     dcc.Dropdown(
                         id='quantity-distribution-dropdown',
                         options=[
-                            {'label': 'Price-Weighted (Current)', 'value': 'price_weighted'},
-                            {'label': 'Equal Quantity', 'value': 'equal_quantity'},
+                            {'label': 'Kelly-Optimized (Recommended)', 'value': 'kelly_optimized'},
+                            {'label': 'Adaptive Kelly', 'value': 'adaptive_kelly'},
+                            {'label': 'Volatility-Weighted', 'value': 'volatility_weighted'},
+                            {'label': 'Sharpe-Maximizing', 'value': 'sharpe_maximizing'},
+                            {'label': 'Fibonacci-Weighted', 'value': 'fibonacci_weighted'},
+                            {'label': 'Risk-Parity', 'value': 'risk_parity'},
+                            {'label': 'Price-Weighted', 'value': 'price_weighted'},
                             {'label': 'Equal Notional', 'value': 'equal_notional'},
+                            {'label': 'Equal Quantity', 'value': 'equal_quantity'},
                             {'label': 'Linear Increase', 'value': 'linear_increase'},
                             {'label': 'Exponential Increase', 'value': 'exponential_increase'},
-                            {'label': 'Risk-Parity', 'value': 'risk_parity'},
-                            {'label': 'Kelly-Optimized', 'value': 'kelly_optimized'}
+                            {'label': 'Probability-Weighted', 'value': 'probability_weighted'}
                         ],
-                        value='price_weighted',
-                        style={'width': '100%', 'marginBottom': '10px',
-                               'backgroundColor': '#3d3d3d', 'color': '#000000', 'borderRadius': '4px'}
+                        value='kelly_optimized',
+                        style={'width': '100%', 'marginBottom': '10px', 'borderRadius': '4px'},
+                        className='dark-dropdown'
                     ),
                     html.Small("How quantities are distributed across ladder rungs",
                              style={'color': '#6c757d'})
@@ -223,16 +233,22 @@ class InteractiveLadderGUI:
                     dcc.Dropdown(
                         id='rung-positioning-dropdown',
                         options=[
-                            {'label': 'Quantile-Based (Current)', 'value': 'quantile'},
+                            {'label': 'Linear Spacing (Recommended)', 'value': 'linear'},
+                            {'label': 'Support/Resistance Clustering', 'value': 'support_resistance'},
+                            {'label': 'Volume Profile Weighted', 'value': 'volume_profile'},
+                            {'label': 'Touch Pattern Analysis', 'value': 'touch_pattern'},
+                            {'label': 'Adaptive Probability', 'value': 'adaptive_probability'},
                             {'label': 'Expected Value Optimization', 'value': 'expected_value'},
-                            {'label': 'Linear Spacing', 'value': 'linear'},
+                            {'label': 'Quantile-Based', 'value': 'quantile'},
+                            {'label': 'Risk-Weighted', 'value': 'risk_weighted'},
                             {'label': 'Exponential Spacing', 'value': 'exponential'},
                             {'label': 'Logarithmic Spacing', 'value': 'logarithmic'},
-                            {'label': 'Risk-Weighted', 'value': 'risk_weighted'}
+                            {'label': 'Fibonacci Levels', 'value': 'fibonacci'},
+                            {'label': 'Dynamic Density', 'value': 'dynamic_density'}
                         ],
-                        value='quantile',
-                        style={'width': '100%', 'marginBottom': '10px',
-                               'backgroundColor': '#3d3d3d', 'color': '#000000', 'borderRadius': '4px'}
+                        value='linear',
+                        style={'width': '100%', 'marginBottom': '10px', 'borderRadius': '4px'},
+                        className='dark-dropdown'
                     ),
                     html.Small("How ladder rungs are positioned across price levels",
                              style={'color': '#6c757d'})
@@ -250,6 +266,7 @@ class InteractiveLadderGUI:
                     html.Label("Cryptocurrency", style={'fontWeight': 'bold', 'color': '#ffffff'}),
                     dcc.Dropdown(
                         id='crypto-dropdown',
+                        className='dark-dropdown',
                         options=[
                             {'label': 'Bitcoin (BTC)', 'value': 'BTCUSDT'},
                             {'label': 'Ethereum (ETH)', 'value': 'ETHUSDT'},
@@ -304,8 +321,7 @@ class InteractiveLadderGUI:
                             {'label': 'Tether Gold (XAUT)', 'value': 'XAUTUSDT'}
                         ],
                         value='SOLUSDT',
-                        style={'width': '100%', 'marginBottom': '10px',
-                               'backgroundColor': '#3d3d3d', 'color': '#000000', 'borderRadius': '4px'}
+                        style={'width': '100%', 'marginBottom': '10px', 'borderRadius': '4px'}
                     ),
                     html.Small("Select cryptocurrency for ladder analysis",
                              style={'color': '#6c757d'})
@@ -449,6 +465,16 @@ class InteractiveLadderGUI:
         )
         def update_current_price_callback(interval_n, crypto_symbol):
             return self.update_current_price(interval_n, crypto_symbol)
+        
+        # Timeframe label callback
+        @self.app.callback(
+            Output('timeframe-label', 'children'),
+            [Input('timeframe-slider', 'value')]
+        )
+        def update_timeframe_label(slider_value):
+            timeframe_labels = {0: "1 day", 1: "1 week", 2: "1 month", 3: "6 months", 
+                              4: "1 year", 5: "3 years", 6: "5 years", 7: "max"}
+            return f"Selected: {timeframe_labels.get(slider_value, 'Unknown')}"
 
     
     def update_all_visualizations(self, aggression_level, num_rungs, timeframe_hours,

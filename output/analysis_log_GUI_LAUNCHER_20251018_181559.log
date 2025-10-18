@@ -1,0 +1,18 @@
+2025-10-18 18:15:59,498 - analysis_20251018_181559 - WARNING - STEP WARNING: Starting GUI launcher
+2025-10-18 18:15:59,511 - analysis_20251018_181559 - INFO - STEP: Dependencies OK
+2025-10-18 18:29:59,842 - analysis_20251018_181559 - INFO - STEP: GUI started
+2025-10-18 18:29:59,842 - analysis_20251018_181559 - INFO - Analysis data saved to output\analysis_data_GUI_LAUNCHER_20251018_181559.json
+2025-10-18 18:29:59,842 - analysis_20251018_181559 - INFO - ============================================================
+2025-10-18 18:29:59,842 - analysis_20251018_181559 - INFO - ANALYSIS RUN SUMMARY
+2025-10-18 18:29:59,842 - analysis_20251018_181559 - INFO - ============================================================
+2025-10-18 18:29:59,842 - analysis_20251018_181559 - INFO - Run ID: 20251018_181559
+2025-10-18 18:29:59,842 - analysis_20251018_181559 - INFO - Symbol: GUI_LAUNCHER
+2025-10-18 18:29:59,850 - analysis_20251018_181559 - INFO - Duration: 840.3 seconds
+2025-10-18 18:29:59,850 - analysis_20251018_181559 - INFO - Problems: 0
+2025-10-18 18:29:59,850 - analysis_20251018_181559 - INFO - Warnings: 0
+2025-10-18 18:29:59,850 - analysis_20251018_181559 - INFO - Errors: 0
+2025-10-18 18:29:59,850 - analysis_20251018_181559 - INFO - Analysis Steps: 3
+2025-10-18 18:29:59,850 - analysis_20251018_181559 - INFO - ============================================================
+2025-10-18 18:29:59,850 - analysis_20251018_181559 - INFO - Log file: output\analysis_log_GUI_LAUNCHER_20251018_181559.log
+2025-10-18 18:29:59,850 - analysis_20251018_181559 - INFO - Data file: output\analysis_data_GUI_LAUNCHER_20251018_181559.json
+2025-10-18 18:29:59,850 - analysis_20251018_181559 - INFO - ============================================================

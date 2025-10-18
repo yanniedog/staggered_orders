@@ -141,6 +141,9 @@ class LadderCalculator:
             Dictionary with complete ladder data
         """
         try:
+            # Get current price for the selected cryptocurrency
+            current_price = data_manager.get_current_price(crypto_symbol)
+            
             # Map aggression level to depth range
             depth_ranges = self._get_depth_range_for_aggression(aggression_level)
             d_min, d_max = depth_ranges
@@ -155,13 +158,24 @@ class LadderCalculator:
             p_sell = timeframe_weibull_params['sell']['p']
             
             # Calculate buy ladder depths using selected positioning method
-            buy_depths = calculate_ladder_depths(
-                theta, p, num_rungs=num_rungs,
-                d_min=d_min, d_max=d_max,
-                method=self._get_positioning_method(rung_positioning),
-                current_price=self.current_price,
-                profit_target_pct=50.0  # Default profit target
-            )
+            positioning_method = self._get_positioning_method(rung_positioning)
+            
+            # Handle advanced positioning methods
+            if positioning_method in ['support_resistance', 'volume_profile', 'touch_pattern', 
+                                     'adaptive_probability', 'fibonacci', 'dynamic_density']:
+                buy_depths = self._calculate_advanced_positioning(
+                    positioning_method, num_rungs, d_min, d_max, theta, p, 
+                    current_price, timeframe_hours
+                )
+            else:
+                # Use standard ladder_depths methods
+                buy_depths = calculate_ladder_depths(
+                    theta, p, num_rungs=num_rungs,
+                    d_min=d_min, d_max=d_max,
+                    method=positioning_method,
+                    current_price=current_price,
+                    profit_target_pct=50.0  # Default profit target
+                )
             
             # Calculate sell ladder depths
             sell_depths, profit_targets = calculate_sell_ladder_depths(
@@ -171,7 +185,7 @@ class LadderCalculator:
                 d_min_sell=d_min * 0.3,
                 d_max_sell=d_max * 0.8,
                 method='quantile',
-                current_price=self.current_price,
+                current_price=current_price,
                 mean_reversion_rate=0.5
             )
             
@@ -183,15 +197,15 @@ class LadderCalculator:
             else:
                 # Use alternative distribution methods
                 buy_allocations = self._calculate_quantity_distribution(
-                    buy_depths, budget, quantity_distribution, current_price=self.current_price
+                    buy_depths, budget, quantity_distribution, current_price=current_price
                 )
             
             # Calculate buy quantities and prices
-            buy_prices = self.current_price * (1 - buy_depths / 100)
+            buy_prices = current_price * (1 - buy_depths / 100)
             buy_quantities = buy_allocations / buy_prices
             
             # Optimize sell sizes
-            sell_prices = self.current_price * (1 + sell_depths / 100)
+            sell_prices = current_price * (1 + sell_depths / 100)
             sell_quantities, actual_profits, alpha_sell = optimize_sell_sizes(
                 buy_quantities, buy_prices, sell_depths, sell_prices,
                 profit_targets, theta_sell, p_sell, independent_optimization=True
@@ -237,7 +251,8 @@ class LadderCalculator:
                 'num_rungs': num_rungs,
                 'timeframe_hours': timeframe_hours,
                 'budget': budget,
-                'current_price': self.current_price,
+                'crypto_symbol': crypto_symbol,
+                'current_price': current_price,
                 'buy_depths': buy_depths,
                 'sell_depths': sell_depths,
                 'buy_prices': buy_prices,
@@ -285,14 +300,30 @@ class LadderCalculator:
         num_rungs = len(depths)
         prices = current_price * (1 - depths / 100)
         
+        # Calculate touch probabilities for advanced methods
+        if self.weibull_params and distribution_method in ['adaptive_kelly', 'volatility_weighted', 'sharpe_maximizing', 'probability_weighted']:
+            theta = self.weibull_params['buy']['theta']
+            p = self.weibull_params['buy']['p']
+            touch_probs = np.array([weibull_touch_probability(d, theta, p) for d in depths])
+        else:
+            touch_probs = np.ones(num_rungs) * 0.5  # Fallback
+        
         # Distribution strategies
         strategies = {
+            # Basic methods
             'equal_quantity': lambda: (np.full(num_rungs, budget / num_rungs / prices.mean()) * prices) * (budget / (np.full(num_rungs, budget / num_rungs / prices.mean()) * prices).sum()),
             'equal_notional': lambda: np.full(num_rungs, budget / num_rungs),
             'linear_increase': lambda: np.linspace(0.5, 2.0, num_rungs) / np.linspace(0.5, 2.0, num_rungs).sum() * budget,
             'exponential_increase': lambda: np.exp(np.linspace(-1, 1, num_rungs)) / np.exp(np.linspace(-1, 1, num_rungs)).sum() * budget,
+            'price_weighted': lambda: np.full(num_rungs, budget / num_rungs),
+            
+            # Advanced methods
             'risk_parity': lambda: (1.0 / (depths + 1)) / (1.0 / (depths + 1)).sum() * budget,
-            'price_weighted': lambda: np.full(num_rungs, budget / num_rungs)
+            'adaptive_kelly': lambda: self._adaptive_kelly_allocation(depths, touch_probs, budget, prices),
+            'volatility_weighted': lambda: self._volatility_weighted_allocation(depths, budget, prices),
+            'sharpe_maximizing': lambda: self._sharpe_maximizing_allocation(depths, touch_probs, budget, prices),
+            'fibonacci_weighted': lambda: self._fibonacci_weighted_allocation(num_rungs, budget),
+            'probability_weighted': lambda: (touch_probs / touch_probs.sum()) * budget
         }
         
         if distribution_method in strategies:
@@ -300,18 +331,292 @@ class LadderCalculator:
         else:
             print(f"Warning: Unknown distribution method '{distribution_method}', using equal_notional")
             return np.full(num_rungs, budget / num_rungs)
+    
+    def _adaptive_kelly_allocation(self, depths: np.ndarray, touch_probs: np.ndarray, 
+                                   budget: float, prices: np.ndarray) -> np.ndarray:
+        """Adaptive Kelly criterion with risk adjustment"""
+        # Expected returns based on depth (more depth = more potential return)
+        expected_returns = depths / 10.0  # Simplified return model
+        
+        # Kelly fraction with safety factor
+        kelly_fractions = (touch_probs * expected_returns) / (expected_returns + 1)
+        kelly_fractions = np.clip(kelly_fractions, 0.05, 0.25)  # Safety limits
+        
+        # Normalize to budget
+        allocations = kelly_fractions / kelly_fractions.sum() * budget
+        return allocations
+    
+    def _volatility_weighted_allocation(self, depths: np.ndarray, budget: float, 
+                                       prices: np.ndarray) -> np.ndarray:
+        """Allocate based on inverse volatility (more stable = more allocation)"""
+        # Use depth as proxy for volatility risk
+        volatility_proxy = depths
+        inverse_vol = 1.0 / (volatility_proxy + 1)
+        weights = inverse_vol / inverse_vol.sum()
+        return weights * budget
+    
+    def _sharpe_maximizing_allocation(self, depths: np.ndarray, touch_probs: np.ndarray,
+                                      budget: float, prices: np.ndarray) -> np.ndarray:
+        """Maximize Sharpe ratio across rungs"""
+        expected_returns = depths / 10.0  # Potential return
+        risks = 1.0 / (touch_probs + 0.01)  # Risk as inverse of touch probability
+        
+        sharpe_ratios = expected_returns / risks
+        sharpe_ratios = np.clip(sharpe_ratios, 0, np.percentile(sharpe_ratios, 90))
+        
+        weights = sharpe_ratios / sharpe_ratios.sum()
+        return weights * budget
+    
+    def _fibonacci_weighted_allocation(self, num_rungs: int, budget: float) -> np.ndarray:
+        """Allocate using Fibonacci sequence weighting"""
+        # Generate Fibonacci sequence
+        if num_rungs == 1:
+            return np.array([budget])
+        elif num_rungs == 2:
+            fib_weights = np.array([1.0, 1.0])
+        else:
+            # Generate Fibonacci numbers
+            fib_sequence = [1, 1]
+            for i in range(2, num_rungs):
+                fib_sequence.append(fib_sequence[-1] + fib_sequence[-2])
+            fib_weights = np.array(fib_sequence)
+        
+        # Option 1: Allocate more to deeper levels (higher Fibonacci numbers)
+        # Option 2: Allocate more to shallower levels (reverse)
+        # Using forward sequence (more allocation to deeper rungs - more aggressive)
+        
+        # Normalize to budget
+        allocations = (fib_weights / fib_weights.sum()) * budget
+        
+        print(f"Fibonacci allocation: Min=${allocations.min():.2f}, Max=${allocations.max():.2f}, Ratio={allocations.max()/allocations.min():.2f}x")
+        return allocations
+    
+    def _calculate_advanced_positioning(self, method: str, num_rungs: int, d_min: float, 
+                                       d_max: float, theta: float, p: float,
+                                       current_price: float, timeframe_hours: int) -> np.ndarray:
+        """Calculate ladder depths using advanced positioning methods"""
+        
+        if method == 'support_resistance':
+            return self._support_resistance_positioning(num_rungs, d_min, d_max, current_price)
+        elif method == 'volume_profile':
+            return self._volume_profile_positioning(num_rungs, d_min, d_max, current_price)
+        elif method == 'touch_pattern':
+            return self._touch_pattern_positioning(num_rungs, d_min, d_max, theta, p, current_price)
+        elif method == 'adaptive_probability':
+            return self._adaptive_probability_positioning(num_rungs, d_min, d_max, theta, p)
+        elif method == 'fibonacci':
+            return self._fibonacci_positioning(num_rungs, d_min, d_max, current_price)
+        elif method == 'dynamic_density':
+            return self._dynamic_density_positioning(num_rungs, d_min, d_max, theta, p)
+        else:
+            # Fallback to linear
+            return np.linspace(d_min, d_max, num_rungs)
+    
+    def _support_resistance_positioning(self, num_rungs: int, d_min: float, d_max: float,
+                                       current_price: float) -> np.ndarray:
+        """Position rungs near support/resistance levels based on historical price clusters"""
+        if self.historical_data is None or len(self.historical_data) < 100:
+            print("Warning: Insufficient data for support/resistance analysis, using linear")
+            return np.linspace(d_min, d_max, num_rungs)
+        
+        try:
+            # Get recent price data
+            recent_prices = self.historical_data['close'].values[-2000:]  # Last 2000 candles
+            
+            # Calculate price levels as percentages below current
+            price_depths = (1 - recent_prices / current_price) * 100
+            price_depths = price_depths[(price_depths >= d_min) & (price_depths <= d_max)]
+            
+            if len(price_depths) < 10:
+                return np.linspace(d_min, d_max, num_rungs)
+            
+            # Find density peaks (support levels) using histogram
+            hist, bin_edges = np.histogram(price_depths, bins=50)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            
+            # Find local maxima (support zones)
+            from scipy.signal import find_peaks
+            peaks, _ = find_peaks(hist, prominence=np.percentile(hist, 60))
+            support_levels = bin_centers[peaks]
+            
+            if len(support_levels) < num_rungs:
+                # Supplement with linear spacing
+                linear_depths = np.linspace(d_min, d_max, num_rungs - len(support_levels))
+                all_depths = np.concatenate([support_levels, linear_depths])
+                depths = np.sort(all_depths)[:num_rungs]
+            else:
+                # Use top support levels
+                support_strengths = hist[peaks]
+                top_indices = np.argsort(support_strengths)[-num_rungs:]
+                depths = np.sort(support_levels[top_indices])
+            
+            print(f"Generated {num_rungs} rungs using support/resistance clustering")
+            return depths
+            
+        except Exception as e:
+            print(f"Warning: Support/resistance calculation failed: {e}, using linear")
+            return np.linspace(d_min, d_max, num_rungs)
+    
+    def _volume_profile_positioning(self, num_rungs: int, d_min: float, d_max: float,
+                                   current_price: float) -> np.ndarray:
+        """Position rungs weighted by volume profile"""
+        if self.historical_data is None or 'volume' not in self.historical_data.columns:
+            print("Warning: No volume data available, using linear")
+            return np.linspace(d_min, d_max, num_rungs)
+        
+        try:
+            recent_data = self.historical_data.tail(2000)
+            prices = recent_data['close'].values
+            volumes = recent_data['volume'].values
+            
+            # Calculate depth from current price
+            depths = (1 - prices / current_price) * 100
+            valid_mask = (depths >= d_min) & (depths <= d_max)
+            
+            if not np.any(valid_mask):
+                return np.linspace(d_min, d_max, num_rungs)
+            
+            valid_depths = depths[valid_mask]
+            valid_volumes = volumes[valid_mask]
+            
+            # Create volume-weighted distribution
+            hist, bin_edges = np.histogram(valid_depths, bins=num_rungs * 2, weights=valid_volumes)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            
+            # Select top volume bins
+            top_indices = np.argsort(hist)[-num_rungs:]
+            selected_depths = np.sort(bin_centers[top_indices])
+            
+            print(f"Generated {num_rungs} rungs using volume profile weighting")
+            return selected_depths
+            
+        except Exception as e:
+            print(f"Warning: Volume profile calculation failed: {e}, using linear")
+            return np.linspace(d_min, d_max, num_rungs)
+    
+    def _touch_pattern_positioning(self, num_rungs: int, d_min: float, d_max: float,
+                                   theta: float, p: float, current_price: float) -> np.ndarray:
+        """Position rungs based on historical touch patterns"""
+        if self.historical_data is None or len(self.historical_data) < 500:
+            print("Warning: Insufficient data for touch pattern analysis, using linear")
+            return np.linspace(d_min, d_max, num_rungs)
+        
+        try:
+            # Analyze where price actually touched historically
+            lows = self.historical_data['low'].values[-2000:]
+            current_prices_hist = self.historical_data['close'].values[-2000:]
+            
+            # Calculate actual touches (where price went down and came back)
+            touch_depths = []
+            for i in range(1, len(lows) - 1):
+                if lows[i] < current_prices_hist[i]:
+                    depth_pct = (1 - lows[i] / current_prices_hist[i]) * 100
+                    if d_min <= depth_pct <= d_max:
+                        touch_depths.append(depth_pct)
+            
+            if len(touch_depths) < 20:
+                return np.linspace(d_min, d_max, num_rungs)
+            
+            # Cluster touch points
+            touch_depths = np.array(touch_depths)
+            hist, bin_edges = np.histogram(touch_depths, bins=num_rungs * 3)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            
+            # Weight by frequency and Weibull probability
+            weibull_probs = np.array([weibull_touch_probability(d, theta, p) for d in bin_centers])
+            combined_score = hist * weibull_probs
+            
+            # Select top scoring depths
+            top_indices = np.argsort(combined_score)[-num_rungs:]
+            depths = np.sort(bin_centers[top_indices])
+            
+            print(f"Generated {num_rungs} rungs using touch pattern analysis")
+            return depths
+            
+        except Exception as e:
+            print(f"Warning: Touch pattern analysis failed: {e}, using linear")
+            return np.linspace(d_min, d_max, num_rungs)
+    
+    def _adaptive_probability_positioning(self, num_rungs: int, d_min: float, d_max: float,
+                                         theta: float, p: float) -> np.ndarray:
+        """Position rungs to maintain equal probability spacing"""
+        # Generate probability quantiles
+        prob_quantiles = np.linspace(0.05, 0.95, num_rungs)
+        
+        # Convert to depths (inverse of CDF sampling)
+        depths = []
+        for q in prob_quantiles:
+            # Find depth that gives this touch probability
+            # Use binary search
+            d_test = np.linspace(d_min, d_max, 1000)
+            probs = np.array([weibull_touch_probability(d, theta, p) for d in d_test])
+            idx = np.argmin(np.abs(probs - q))
+            depths.append(d_test[idx])
+        
+        depths = np.array(depths)
+        print(f"Generated {num_rungs} rungs with adaptive probability spacing")
+        return depths
+    
+    def _fibonacci_positioning(self, num_rungs: int, d_min: float, d_max: float,
+                              current_price: float) -> np.ndarray:
+        """Position rungs at Fibonacci retracement levels"""
+        # Standard Fibonacci ratios
+        fib_ratios = np.array([0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.272, 1.618, 2.618])
+        
+        # Map to depth range
+        depth_range = d_max - d_min
+        fib_depths = d_min + fib_ratios * depth_range / fib_ratios.max()
+        fib_depths = fib_depths[fib_depths <= d_max]
+        
+        if len(fib_depths) >= num_rungs:
+            # Use subset of Fibonacci levels
+            indices = np.linspace(0, len(fib_depths) - 1, num_rungs, dtype=int)
+            depths = fib_depths[indices]
+        else:
+            # Supplement with linear spacing
+            extra_needed = num_rungs - len(fib_depths)
+            linear_depths = np.linspace(d_min, d_max, extra_needed)
+            depths = np.sort(np.concatenate([fib_depths, linear_depths]))[:num_rungs]
+        
+        print(f"Generated {num_rungs} rungs using Fibonacci levels")
+        return depths
+    
+    def _dynamic_density_positioning(self, num_rungs: int, d_min: float, d_max: float,
+                                    theta: float, p: float) -> np.ndarray:
+        """Position rungs with density proportional to touch probability"""
+        # Generate fine grid
+        fine_grid = np.linspace(d_min, d_max, 1000)
+        touch_probs = np.array([weibull_touch_probability(d, theta, p) for d in fine_grid])
+        
+        # Cumulative probability
+        cumulative = np.cumsum(touch_probs)
+        cumulative /= cumulative[-1]
+        
+        # Select depths at equal cumulative intervals
+        target_cumulative = np.linspace(0, 1, num_rungs + 2)[1:-1]  # Exclude endpoints
+        depths = np.interp(target_cumulative, cumulative, fine_grid)
+        
+        print(f"Generated {num_rungs} rungs with dynamic density positioning")
+        return depths
 
     def _get_positioning_method(self, rung_positioning: str) -> str:
-        """Map rung positioning UI option to ladder_depths method"""
-        method_mapping = {
+        """Map rung positioning UI option to ladder_depths method or handle custom methods"""
+        # Methods handled by ladder_depths.py
+        standard_methods = {
             'quantile': 'quantile',
             'expected_value': 'expected_value',
             'linear': 'linear',
-            'exponential': 'exponential',  # Will implement this
-            'logarithmic': 'logarithmic',  # Will implement this
-            'risk_weighted': 'risk_weighted'  # Will implement this
+            'exponential': 'exponential',
+            'logarithmic': 'logarithmic',
+            'risk_weighted': 'risk_weighted'
         }
-        return method_mapping.get(rung_positioning, 'quantile')
+        
+        # Advanced methods handled here in calculator
+        if rung_positioning in ['support_resistance', 'volume_profile', 'touch_pattern', 
+                               'adaptive_probability', 'fibonacci', 'dynamic_density']:
+            return rung_positioning  # Will be handled by custom logic
+        
+        return standard_methods.get(rung_positioning, 'linear')
 
     def _get_fallback_configuration(self, aggression_level: int, num_rungs: int, budget: float,
                                    quantity_distribution: str = 'equal_notional',

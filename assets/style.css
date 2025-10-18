@@ -357,6 +357,49 @@ h1, h2, h3, h4, h5, h6 {
     border-color: #444444 !important;
 }
 
+/* Dark mode dropdown styling */
+.dark-dropdown .Select-control {
+    background-color: #3d3d3d !important;
+    border-color: #555555 !important;
+}
+
+.dark-dropdown .Select-value {
+    color: #e0e0e0 !important;
+    background-color: #3d3d3d !important;
+}
+
+.dark-dropdown .Select-value-label {
+    color: #e0e0e0 !important;
+}
+
+.dark-dropdown .Select-input > input {
+    color: #ffffff !important;
+}
+
+.dark-dropdown .Select-menu-outer {
+    background-color: #3d3d3d !important;
+    border-color: #555555 !important;
+}
+
+.dark-dropdown .Select-option {
+    background-color: #3d3d3d !important;
+    color: #e0e0e0 !important;
+}
+
+.dark-dropdown .Select-option.is-focused {
+    background-color: #007bff !important;
+    color: #ffffff !important;
+}
+
+.dark-dropdown .Select-option.is-selected {
+    background-color: #0056b3 !important;
+    color: #ffffff !important;
+}
+
+.dark-dropdown .Select-placeholder {
+    color: #999999 !important;
+}
+
 /* Animation keyframes */
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(20px); }
