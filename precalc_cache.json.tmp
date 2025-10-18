@@ -1,0 +1,9 @@
+{
+  "SOLUSDT_3_20_720_1000_kelly_optimized_linear": {
+    "aggression_level": 3,
+    "num_rungs": 20,
+    "timeframe_hours": 720,
+    "budget": 1000,
+    "crypto_symbol": "SOLUSDT",
+    "current_price": 185.33,
+    "buy_depths": 

@@ -12,6 +12,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import time
 import threading
+import os
 from functools import lru_cache
 import warnings
 
@@ -21,6 +22,7 @@ from gui_visualizations import VisualizationEngine
 from gui_historical import HistoricalAnalyzer
 from data_fetcher import get_current_price
 from config import load_config
+from usage_tracker import UsageTracker
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
@@ -50,20 +52,28 @@ class InteractiveLadderGUI:
         
         # Precalculation system
         self.precalc_cache = {}
+        self.precalc_cache_file = 'precalc_cache.json'
         self.precalc_thread = None
         self.precalc_running = False
         self.precalc_progress = 0
         self.precalc_total = 0
         self.precalc_paused = False  # For user priority
+
+        # Load persistent cache on startup
+        self.load_persistent_cache()
         
         # Usage tracking system
-        self.usage_stats = {}
-        self.usage_file = 'usage_stats.json'
-        self.load_usage_stats()
-        
+        self.usage_tracker = UsageTracker('usage_stats.json')
+
         self.setup_layout()
         self.setup_callbacks()
-        self.start_precalculations()
+
+        # Start precalculations in background (with error handling)
+        try:
+            self.start_precalculations()
+        except Exception as e:
+            print(f"Warning: Could not start precalculations: {e}")
+            self.precalc_running = False
     
     def setup_layout(self):
         """Create the main application layout"""
@@ -83,6 +93,14 @@ class InteractiveLadderGUI:
                     'marginBottom': '0px',
                     'boxShadow': '0 2px 4px rgba(0,0,0,0.3)'
                 }),
+
+                # Precalculation Status Indicator (Top Left Corner)
+                html.Div([
+                    html.Div(id='precalc-status',
+                            style={'color': '#28a745', 'fontSize': '11px', 'textAlign': 'center',
+                                   'padding': '8px', 'backgroundColor': '#1a1a1a', 'borderRadius': '0 0 8px 8px',
+                                   'border': '1px solid #444444', 'marginBottom': '10px'})
+                ], style={'marginBottom': '5px'}),
                 
                 self.create_control_panel()
             ], style={
@@ -108,14 +126,10 @@ class InteractiveLadderGUI:
                     html.P("Real-time visualization and analysis of order ladder configurations",
                           style={'textAlign': 'center', 'color': '#6c757d', 'marginBottom': '30px'}),
                     
-                    # Status indicators in top right
+                    # User request status indicator in top right
                     html.Div([
-                        html.Div(id='precalc-status', 
-                                style={'color': '#28a745', 'fontSize': '12px', 'textAlign': 'right', 
-                                       'padding': '5px', 'backgroundColor': '#2d2d2d', 'borderRadius': '4px',
-                                       'marginBottom': '5px'}),
-                        html.Div(id='user-request-status', 
-                                style={'color': '#ffc107', 'fontSize': '12px', 'textAlign': 'right', 
+                        html.Div(id='user-request-status',
+                                style={'color': '#ffc107', 'fontSize': '12px', 'textAlign': 'right',
                                        'padding': '5px', 'backgroundColor': '#2d2d2d', 'borderRadius': '4px',
                                        'display': 'none'})  # Hidden by default
                     ], style={'position': 'absolute', 'top': '20px', 'right': '20px', 'width': '300px'})
@@ -138,7 +152,7 @@ class InteractiveLadderGUI:
                 interval=2000,  # Update every 2 seconds
                 n_intervals=0
             ),
-
+            
             # Loading overlay
             dcc.Loading(
                 id="loading",
@@ -248,7 +262,7 @@ class InteractiveLadderGUI:
                     html.Div(id='quantity-distribution-explanation', 
                             style={'color': '#ffffff', 'marginTop': '8px', 'fontSize': '13px', 'fontStyle': 'italic'})
                 ], style={'marginBottom': '30px'}),
-
+                
                 # Rung Positioning Method
                 html.Div([
                     html.Label("Rung Positioning Method", style={'fontWeight': 'bold', 'color': '#ffffff'}),
@@ -264,7 +278,7 @@ class InteractiveLadderGUI:
                     html.Div(id='rung-positioning-explanation', 
                             style={'color': '#ffffff', 'marginTop': '8px', 'fontSize': '13px', 'fontStyle': 'italic'})
                 ], style={'marginBottom': '30px'}),
-                
+
                 # Current Price Display
                 html.Div([
                     html.Label("Current Price", style={'fontWeight': 'bold', 'color': '#ffffff'}),
@@ -312,7 +326,7 @@ class InteractiveLadderGUI:
                                  style={'color': '#6c757d'})
                     ], style={'marginBottom': '15px'})
                 ], style={'marginBottom': '30px'}),
-                
+
                 # Order Tables Section
                 html.Div([
                     html.Label("Order Summary", style={'fontWeight': 'bold', 'color': '#ffffff', 'fontSize': '16px', 'marginBottom': '15px'}),
@@ -591,10 +605,92 @@ class InteractiveLadderGUI:
                 'dynamic_density': "Dynamic density adjusts rung density based on market volatility and trading activity."
             }
             return explanations.get(method, "Method description not available.")
+        
+        # Precalculation Status Callback
+        @self.app.callback(
+            Output('precalc-status', 'children'),
+            [Input('precalc-interval', 'n_intervals')]
+        )
+        def update_precalc_status(n_intervals):
+            try:
+                return self.get_precalc_status()
+            except Exception as e:
+                print(f"Error in precalc status callback: {e}")
+                return "[OK] Status unavailable"
+
+        # User Request Status Callback (combined to avoid duplicate outputs)
+        @self.app.callback(
+            Output('user-request-status', 'children'),
+            [Input('aggression-slider', 'value'),
+             Input('rungs-slider', 'value'),
+             Input('timeframe-slider', 'value'),
+             Input('budget-input', 'value'),
+             Input('quantity-distribution-dropdown', 'value'),
+             Input('crypto-dropdown', 'value'),
+             Input('rung-positioning-dropdown', 'value'),
+             Input('user-request-status', 'style')]
+        )
+        def update_user_request_status_text(*inputs):
+            try:
+                # Use callback context to determine which input triggered the callback
+                ctx = callback_context
+                if not ctx.triggered:
+                    return "[OK] Ready"
+                
+                trigger_id = ctx.triggered[0]['prop_id']
+                
+                # Check if the trigger was from style changes
+                if 'user-request-status.style' in trigger_id:
+                    # Get the style input (last input)
+                    style = inputs[-1]
+                    if style and style.get('display') == 'none':
+                        return "[OK] Ready"
+                    return dash.no_update
+                else:
+                    # Show processing status when any parameter changes
+                    # Check if any of the parameter inputs (first 7) have values
+                    if any(inputs[:7]):
+                        return "[PROCESSING] Processing your request..."
+                    return "[OK] Ready"
+                    
+            except Exception as e:
+                print(f"Error in user request status callback: {e}")
+                return "[OK] Ready"
+
+        # User Request Status Visibility Callback (combined to avoid duplicate outputs)
+        @self.app.callback(
+            Output('user-request-status', 'style'),
+            [Input('ladder-configuration-chart', 'figure'),
+             Input('touch-probability-curves', 'figure'),
+             Input('rung-touch-probabilities', 'figure'),
+             Input('historical-touch-frequency', 'figure'),
+             Input('profit-distribution', 'figure'),
+             Input('risk-return-profile', 'figure'),
+             Input('touch-vs-time', 'figure'),
+             Input('allocation-distribution', 'figure'),
+             Input('fit-quality-dashboard', 'figure'),
+             Input('calculation-cache', 'data')]
+        )
+        def update_user_request_status_visibility(*inputs):
+            # Use callback context to determine which input triggered the callback
+            ctx = callback_context
+            if not ctx.triggered:
+                return {'display': 'none'}
+            
+            # Check if the trigger was from calculation-cache (completion)
+            trigger_id = ctx.triggered[0]['prop_id']
+            if 'calculation-cache' in trigger_id:
+                # Hide status when cache is updated (calculation complete)
+                return {'display': 'none'}
+            else:
+                # Show processing status when figures are being updated (indicates calculation in progress)
+                return {'color': '#ffc107', 'fontSize': '12px', 'textAlign': 'right',
+                       'padding': '5px', 'backgroundColor': '#2d2d2d', 'borderRadius': '4px',
+                       'display': 'block', 'animation': 'pulse 1s infinite'}
     
     def get_sorted_quantity_options(self):
         """Get quantity distribution options sorted by usage frequency"""
-        analytics = self.get_usage_analytics()
+        analytics = self.usage_tracker.get_analytics()
         method_usage = analytics.get('method_distribution', {}).get('quantity', {})
         
         # Default options with usage counts
@@ -625,7 +721,7 @@ class InteractiveLadderGUI:
     
     def get_sorted_positioning_options(self):
         """Get rung positioning options sorted by usage frequency"""
-        analytics = self.get_usage_analytics()
+        analytics = self.usage_tracker.get_analytics()
         method_usage = analytics.get('method_distribution', {}).get('positioning', {})
         
         # Default options with usage counts
@@ -656,7 +752,7 @@ class InteractiveLadderGUI:
     
     def get_sorted_crypto_options(self):
         """Get cryptocurrency options sorted by usage frequency"""
-        analytics = self.get_usage_analytics()
+        analytics = self.usage_tracker.get_analytics()
         crypto_usage = analytics.get('crypto_distribution', {})
         
         # Default options with usage counts
@@ -682,69 +778,6 @@ class InteractiveLadderGUI:
             return (0, -usage_count)  # Then by usage
         
         return sorted(options, key=sort_key)
-        
-        # Precalculation Status Callback
-        @self.app.callback(
-            Output('precalc-status', 'children'),
-            [Input('precalc-interval', 'n_intervals')]
-        )
-        def update_precalc_status(n_intervals):
-            return self.get_precalc_status()
-
-        # User Request Status Callback
-        @self.app.callback(
-            Output('user-request-status', 'children'),
-            [Input('aggression-slider', 'value'),
-             Input('rungs-slider', 'value'),
-             Input('timeframe-slider', 'value'),
-             Input('budget-input', 'value'),
-             Input('quantity-distribution-dropdown', 'value'),
-             Input('crypto-dropdown', 'value'),
-             Input('rung-positioning-dropdown', 'value')]
-        )
-        def update_user_request_status(aggression, rungs, timeframe, budget, qty_method, crypto, pos_method):
-            # Show processing status when any parameter changes
-            if any([aggression, rungs, timeframe, budget, qty_method, crypto, pos_method]):
-                return "🔄 Processing your request..."
-            return "✓ Ready"
-
-        # User Request Status Text when Hidden
-        @self.app.callback(
-            Output('user-request-status', 'children'),
-            [Input('user-request-status', 'style')]
-        )
-        def update_user_request_text_when_hidden(style):
-            if style.get('display') == 'none':
-                return "✓ Ready"
-            return dash.no_update
-
-        # User Request Status Visibility Callback (triggered by calculation callback)
-        @self.app.callback(
-            Output('user-request-status', 'style'),
-            [Input('ladder-configuration-chart', 'figure'),
-             Input('touch-probability-curves', 'figure'),
-             Input('rung-touch-probabilities', 'figure'),
-             Input('historical-touch-frequency', 'figure'),
-             Input('profit-distribution', 'figure'),
-             Input('risk-return-profile', 'figure'),
-             Input('touch-vs-time', 'figure'),
-             Input('allocation-distribution', 'figure'),
-             Input('fit-quality-dashboard', 'figure')]
-        )
-        def update_user_request_visibility(*figures):
-            # Show processing status when figures are being updated (indicates calculation in progress)
-            return {'color': '#ffc107', 'fontSize': '12px', 'textAlign': 'right',
-                   'padding': '5px', 'backgroundColor': '#2d2d2d', 'borderRadius': '4px',
-                   'display': 'block', 'animation': 'pulse 1s infinite'}
-
-        # Hide User Request Status when calculation completes
-        @self.app.callback(
-            Output('user-request-status', 'style'),
-            [Input('calculation-cache', 'data')]
-        )
-        def hide_user_request_status(cache_data):
-            # Hide status when cache is updated (calculation complete)
-            return {'display': 'none'}
 
     
     def update_all_visualizations(self, aggression_level, num_rungs, timeframe_hours,
@@ -780,17 +813,31 @@ class InteractiveLadderGUI:
                     aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution,
                     crypto_symbol, rung_positioning
                 )
+
+                # Save to persistent cache for future use
+                cache_key = self._generate_cache_key({
+                    'aggression_level': aggression_level,
+                    'num_rungs': num_rungs,
+                    'timeframe_hours': timeframe_hours,
+                    'budget': budget,
+                    'quantity_distribution': quantity_distribution,
+                    'crypto_symbol': crypto_symbol,
+                    'rung_positioning': rung_positioning
+                })
+                self.precalc_cache[cache_key] = ladder_data
+                self.save_persistent_cache()
             else:
                 print(f"Using precalculated result: {crypto_symbol} {aggression_level} {num_rungs} {timeframe_hours}h {budget} {quantity_distribution} {rung_positioning}")
+                # ladder_data is already set from precalculated result
             
             # Track usage of this configuration
-            self.track_configuration_usage(
+            self.usage_tracker.track_usage(
                 aggression_level, num_rungs, timeframe_hours, budget,
                 quantity_distribution, crypto_symbol, rung_positioning
             )
             
             # Validate ladder data
-            if not ladder_data or 'buy_depths' not in ladder_data:
+            if not ladder_data or not isinstance(ladder_data, dict) or 'buy_depths' not in ladder_data:
                 print("Error: Invalid ladder data returned")
                 return self._get_error_response(cache_data)
             
@@ -1013,143 +1060,19 @@ class InteractiveLadderGUI:
             print(f"Error generating CSV content: {e}")
             return "Error generating CSV content"
     
-    def load_usage_stats(self):
-        """Load usage statistics from persistent storage"""
-        try:
-            import json
-            import os
-            
-            if os.path.exists(self.usage_file):
-                with open(self.usage_file, 'r') as f:
-                    self.usage_stats = json.load(f)
-                print(f"Loaded usage stats: {len(self.usage_stats)} configurations tracked")
-            else:
-                self.usage_stats = {}
-                print("No existing usage stats found, starting fresh")
-                
-        except Exception as e:
-            print(f"Error loading usage stats: {e}")
-            self.usage_stats = {}
-    
-    def save_usage_stats(self):
-        """Save usage statistics to persistent storage"""
-        try:
-            import json
-            
-            with open(self.usage_file, 'w') as f:
-                json.dump(self.usage_stats, f, indent=2)
-            print(f"Saved usage stats: {len(self.usage_stats)} configurations")
-            
-        except Exception as e:
-            print(f"Error saving usage stats: {e}")
-    
-    def track_configuration_usage(self, aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution, crypto_symbol, rung_positioning):
-        """Track usage of a configuration"""
-        config_key = self._generate_cache_key({
-            'aggression_level': aggression_level,
-            'num_rungs': num_rungs,
-            'timeframe_hours': timeframe_hours,
-            'budget': budget,
-            'quantity_distribution': quantity_distribution,
-            'crypto_symbol': crypto_symbol,
-            'rung_positioning': rung_positioning
-        })
-        
-        # Increment usage count
-        if config_key in self.usage_stats:
-            self.usage_stats[config_key]['count'] += 1
-            self.usage_stats[config_key]['last_used'] = time.time()
-        else:
-            self.usage_stats[config_key] = {
-                'count': 1,
-                'first_used': time.time(),
-                'last_used': time.time(),
-                'config': {
-                    'aggression_level': aggression_level,
-                    'num_rungs': num_rungs,
-                    'timeframe_hours': timeframe_hours,
-                    'budget': budget,
-                    'quantity_distribution': quantity_distribution,
-                    'crypto_symbol': crypto_symbol,
-                    'rung_positioning': rung_positioning
-                }
-            }
-        
-        # Save stats periodically (every 10 uses)
-        if self.usage_stats[config_key]['count'] % 10 == 0:
-            self.save_usage_stats()
-    
-    def get_most_used_configurations(self, limit=20):
-        """Get the most frequently used configurations"""
-        if not self.usage_stats:
-            return []
-        
-        # Sort by usage count (descending)
-        sorted_configs = sorted(
-            self.usage_stats.items(),
-            key=lambda x: x[1]['count'],
-            reverse=True
-        )
-        
-        # Return top configurations
-        return sorted_configs[:limit]
-    
-    def get_usage_analytics(self):
-        """Get usage analytics summary"""
-        if not self.usage_stats:
-            return {
-                'total_configurations': 0,
-                'total_uses': 0,
-                'most_popular_crypto': 'N/A',
-                'most_popular_methods': 'N/A',
-                'average_uses_per_config': 0
-            }
-        
-        total_configs = len(self.usage_stats)
-        total_uses = sum(stats['count'] for stats in self.usage_stats.values())
-        
-        # Analyze crypto usage
-        crypto_usage = {}
-        method_usage = {'quantity': {}, 'positioning': {}}
-        
-        for config_key, stats in self.usage_stats.items():
-            config = stats['config']
-            
-            # Track crypto usage
-            crypto = config['crypto_symbol']
-            crypto_usage[crypto] = crypto_usage.get(crypto, 0) + stats['count']
-            
-            # Track method usage
-            qty_method = config['quantity_distribution']
-            pos_method = config['rung_positioning']
-            
-            method_usage['quantity'][qty_method] = method_usage['quantity'].get(qty_method, 0) + stats['count']
-            method_usage['positioning'][pos_method] = method_usage['positioning'].get(pos_method, 0) + stats['count']
-        
-        most_popular_crypto = max(crypto_usage.items(), key=lambda x: x[1])[0] if crypto_usage else 'N/A'
-        most_popular_qty = max(method_usage['quantity'].items(), key=lambda x: x[1])[0] if method_usage['quantity'] else 'N/A'
-        most_popular_pos = max(method_usage['positioning'].items(), key=lambda x: x[1])[0] if method_usage['positioning'] else 'N/A'
-        
-        return {
-            'total_configurations': total_configs,
-            'total_uses': total_uses,
-            'most_popular_crypto': most_popular_crypto,
-            'most_popular_qty_method': most_popular_qty,
-            'most_popular_pos_method': most_popular_pos,
-            'average_uses_per_config': total_uses / total_configs if total_configs > 0 else 0,
-            'crypto_distribution': crypto_usage,
-            'method_distribution': method_usage
-        }
-    
     def start_precalculations(self):
         """Start background precalculations for common parameter combinations"""
         if self.precalc_running:
             return
-        
+
         self.precalc_running = True
-        self.precalc_thread = threading.Thread(target=self._precalculate_common_configs, daemon=True)
-        self.precalc_thread.start()
-        print("Started background precalculations for improved responsiveness...")
+        try:
+            self.precalc_thread = threading.Thread(target=self._precalculate_common_configs, daemon=True)
+            self.precalc_thread.start()
+            print("Started background precalculations for improved responsiveness...")
+        except Exception as e:
+            print(f"Error starting precalculation thread: {e}")
+            self.precalc_running = False
     
     def _precalculate_common_configs(self):
         """Precalculate common parameter combinations in background"""
@@ -1158,44 +1081,53 @@ class InteractiveLadderGUI:
             common_configs = self._get_common_configurations()
             self.precalc_total = len(common_configs)
             self.precalc_progress = 0
-            
+
             print(f"Precalculating {self.precalc_total} common configurations...")
-            
+
             for i, config in enumerate(common_configs):
                 try:
                     # Check if paused for user priority
                     while self.precalc_paused:
                         time.sleep(0.1)  # Wait 100ms before checking again
-                    
+
                     # Generate cache key
                     cache_key = self._generate_cache_key(config)
-                    
+
                     # Skip if already cached
                     if cache_key in self.precalc_cache:
+                        self.precalc_progress = i + 1
                         continue
-                    
+
                     # Calculate ladder configuration
                     result = self.calculator.calculate_ladder_configuration(
                         config['aggression_level'], config['num_rungs'], config['timeframe_hours'],
-                        config['budget'], config['quantity_distribution'], 
+                        config['budget'], config['quantity_distribution'],
                         config['crypto_symbol'], config['rung_positioning']
                     )
-                    
+
                     # Store in cache
                     self.precalc_cache[cache_key] = result
                     self.precalc_progress = i + 1
-                    
+
+                    # Save to persistent cache periodically
+                    if (i + 1) % 5 == 0:
+                        self.save_persistent_cache()
+
                     # Progress update every 10 calculations
                     if (i + 1) % 10 == 0:
                         progress_pct = (i + 1) / self.precalc_total * 100
                         print(f"Precalculation progress: {i + 1}/{self.precalc_total} ({progress_pct:.1f}%)")
-                    
+
                 except Exception as e:
                     print(f"Error precalculating config {i + 1}: {e}")
+                    self.precalc_progress = i + 1
                     continue
-            
+
             print(f"Precalculation complete! Cached {len(self.precalc_cache)} configurations.")
-            
+
+            # Save final persistent cache
+            self.save_persistent_cache()
+
         except Exception as e:
             print(f"Error in precalculation thread: {e}")
         finally:
@@ -1206,7 +1138,7 @@ class InteractiveLadderGUI:
         configs = []
         
         # Get most used configurations from usage stats
-        most_used = self.get_most_used_configurations(limit=30)
+        most_used = self.usage_tracker.get_most_used_configurations(limit=30)
         
         # Add most used configurations first (highest priority)
         for config_key, stats in most_used:
@@ -1267,7 +1199,7 @@ class InteractiveLadderGUI:
     
     def _generate_cache_key(self, config):
         """Generate a unique cache key for a configuration"""
-        return f"{config['crypto_symbol']}_{config['aggression_level']}_{config['num_rungs']}_{config['timeframe_hours']}_{config['budget']}_{config['quantity_distribution']}_{config['rung_positioning']}"
+        return self.usage_tracker.generate_cache_key(config)
     
     def get_precalculated_result(self, aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution, crypto_symbol, rung_positioning):
         """Get precalculated result if available, otherwise return None"""
@@ -1282,7 +1214,123 @@ class InteractiveLadderGUI:
         }
         
         cache_key = self._generate_cache_key(config)
-        return self.precalc_cache.get(cache_key)
+
+        # Try exact match first
+        result = self.precalc_cache.get(cache_key)
+        if result is not None:
+            print(f"Using cached result (exact match): {cache_key}")
+            return result
+
+        # Try partial matching for better cache utilization
+        result = self._find_closest_cache_match(config)
+        if result is not None:
+            print(f"Using cached result (closest match): {cache_key}")
+            # Cache the result under the new key for future use
+            self.precalc_cache[cache_key] = result
+            return result
+
+        return None
+
+    def _find_closest_cache_match(self, config):
+        """Find the closest cached configuration that can be reused"""
+        target_key = self._generate_cache_key(config)
+
+        # Look for configurations that differ only in minor parameters
+        for cached_key, cached_result in self.precalc_cache.items():
+            if self._configs_are_similar(config, self._parse_cache_key(cached_key)):
+                print(f"Found similar configuration: {cached_key} -> {target_key}")
+                return cached_result
+
+        return None
+
+    def _configs_are_similar(self, config1, config2):
+        """Check if two configurations are similar enough to reuse results"""
+        # Same crypto, timeframe, and positioning method are most important
+        if (config1['crypto_symbol'] != config2['crypto_symbol'] or
+            config1['timeframe_hours'] != config2['timeframe_hours'] or
+            config1['rung_positioning'] != config2['rung_positioning']):
+            return False
+
+        # Allow some flexibility in other parameters
+        # Aggression level can vary by 1, rungs by 5, budget by 20%
+        aggression_diff = abs(config1['aggression_level'] - config2['aggression_level'])
+        rungs_diff = abs(config1['num_rungs'] - config2['num_rungs'])
+        budget_ratio = max(config1['budget'], config2['budget']) / min(config1['budget'], config2['budget'])
+
+        return (aggression_diff <= 1 and rungs_diff <= 5 and budget_ratio <= 1.2)
+
+    def _parse_cache_key(self, cache_key):
+        """Parse a cache key back into configuration dict"""
+        parts = cache_key.split('_')
+        if len(parts) != 7:
+            return None
+
+        return {
+            'crypto_symbol': parts[0],
+            'aggression_level': int(parts[1]),
+            'num_rungs': int(parts[2]),
+            'timeframe_hours': int(parts[3]),
+            'budget': float(parts[4]),
+            'quantity_distribution': parts[5],
+            'rung_positioning': parts[6]
+        }
+
+    def load_persistent_cache(self):
+        """Load persistent cache from disk"""
+        try:
+            import json
+            if os.path.exists(self.precalc_cache_file):
+                try:
+                    with open(self.precalc_cache_file, 'r') as f:
+                        cache_data = json.load(f)
+                        self.precalc_cache = cache_data
+                        print(f"Loaded persistent cache: {len(self.precalc_cache)} configurations")
+                    return True
+                except json.JSONDecodeError as e:
+                    print(f"Corrupted persistent cache file detected: {e}")
+                    print("Removing corrupted cache file and starting fresh")
+                    os.remove(self.precalc_cache_file)
+                    self.precalc_cache = {}
+                    return False
+                except Exception as e:
+                    print(f"Error reading persistent cache file: {e}")
+                    # Try to backup the corrupted file
+                    backup_file = self.precalc_cache_file + '.corrupted'
+                    try:
+                        os.rename(self.precalc_cache_file, backup_file)
+                        print(f"Backed up corrupted cache to {backup_file}")
+                    except:
+                        pass
+                    self.precalc_cache = {}
+                    return False
+            else:
+                print("No persistent cache file found, starting fresh")
+                return False
+        except Exception as e:
+            print(f"Error loading persistent cache: {e}")
+            self.precalc_cache = {}
+            return False
+
+    def save_persistent_cache(self):
+        """Save cache to persistent storage"""
+        try:
+            import json
+
+            # Only save if we have significant cache
+            if len(self.precalc_cache) >= 5:
+                # Write to temporary file first, then rename (atomic operation)
+                temp_file = self.precalc_cache_file + '.tmp'
+                with open(temp_file, 'w') as f:
+                    json.dump(self.precalc_cache, f, indent=2)
+                # Atomic rename
+                import os
+                os.replace(temp_file, self.precalc_cache_file)
+                print(f"Saved persistent cache: {len(self.precalc_cache)} configurations")
+                return True
+            return False
+        except Exception as e:
+            print(f"Error saving persistent cache: {e}")
+            return False
     
     def pause_precalculation(self):
         """Pause precalculation for user priority"""
@@ -1296,16 +1344,29 @@ class InteractiveLadderGUI:
     
     def get_precalc_status(self):
         """Get precalculation status for display"""
-        if not self.precalc_running:
-            analytics = self.get_usage_analytics()
-            if analytics['total_uses'] > 0:
-                return f"✓ {len(self.precalc_cache)} cached | {analytics['total_uses']} uses tracked | Most used: {analytics['most_popular_crypto']}"
+        try:
+            # Check if precalc thread is still alive
+            if hasattr(self, 'precalc_thread') and self.precalc_thread and not self.precalc_thread.is_alive():
+                self.precalc_running = False
+
+            if not self.precalc_running:
+                try:
+                    analytics = self.usage_tracker.get_analytics()
+                    if analytics and analytics.get('total_uses', 0) > 0:
+                        return f"[OK] {len(self.precalc_cache)} cached | {analytics['total_uses']} uses tracked | Most used: {analytics.get('most_popular_crypto', 'N/A')}"
+                    else:
+                        return f"[OK] {len(self.precalc_cache)} configurations cached (learning usage patterns...)"
+                except Exception as e:
+                    return f"[OK] {len(self.precalc_cache)} configurations cached"
             else:
-                return f"✓ {len(self.precalc_cache)} configurations cached (learning usage patterns...)"
-        else:
-            progress_pct = (self.precalc_progress / self.precalc_total * 100) if self.precalc_total > 0 else 0
-            status = "Precalculating" if not self.precalc_paused else "Paused for user"
-            return f"{status}: {self.precalc_progress}/{self.precalc_total} ({progress_pct:.1f}%)"
+                try:
+                    progress_pct = (self.precalc_progress / self.precalc_total * 100) if self.precalc_total > 0 else 0
+                    status = "Precalculating" if not self.precalc_paused else "Paused for user"
+                    return f"{status}: {self.precalc_progress}/{self.precalc_total} ({progress_pct:.1f}%)"
+                except Exception as e:
+                    return "Precalculating..."
+        except Exception as e:
+            return "[OK] Status unavailable"
     
     def run(self, debug=True, port=8050):
         """Run the application"""
