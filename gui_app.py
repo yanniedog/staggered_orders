@@ -48,8 +48,22 @@ class InteractiveLadderGUI:
         self.last_update_time = 0
         self.update_debounce_ms = 300
         
+        # Precalculation system
+        self.precalc_cache = {}
+        self.precalc_thread = None
+        self.precalc_running = False
+        self.precalc_progress = 0
+        self.precalc_total = 0
+        self.precalc_paused = False  # For user priority
+        
+        # Usage tracking system
+        self.usage_stats = {}
+        self.usage_file = 'usage_stats.json'
+        self.load_usage_stats()
+        
         self.setup_layout()
         self.setup_callbacks()
+        self.start_precalculations()
     
     def setup_layout(self):
         """Create the main application layout"""
@@ -69,6 +83,20 @@ class InteractiveLadderGUI:
                     'marginBottom': '0px',
                     'boxShadow': '0 2px 4px rgba(0,0,0,0.3)'
                 }),
+                
+                # Precalculation Status Indicator
+                html.Div([
+                    html.Div(id='precalc-status', 
+                            style={'color': '#28a745', 'fontSize': '12px', 'textAlign': 'center', 
+                                   'padding': '5px', 'backgroundColor': '#1a1a1a', 'borderRadius': '0 0 8px 8px'})
+                ], style={'marginBottom': '10px'}),
+                
+                # Hidden interval component for precalc status updates
+                dcc.Interval(
+                    id='precalc-interval',
+                    interval=2000,  # Update every 2 seconds
+                    n_intervals=0
+                ),
                 
                 self.create_control_panel()
             ], style={
@@ -284,7 +312,7 @@ class InteractiveLadderGUI:
                                    'color': '#ffffff', 'borderRadius': '4px'}
                         ),
                         html.Small("Default: 0.075% (Binance spot trading fee)",
-                                 style={'color': '#6c757d'})
+                             style={'color': '#6c757d'})
                     ], style={'marginBottom': '15px'}),
                     
                     # Minimum Notional
@@ -636,15 +664,118 @@ class InteractiveLadderGUI:
                 'dynamic_density': "Dynamic density adjusts rung density based on market volatility and trading activity."
             }
             return explanations.get(method, "Method description not available.")
+    
+    def get_sorted_quantity_options(self):
+        """Get quantity distribution options sorted by usage frequency"""
+        analytics = self.get_usage_analytics()
+        method_usage = analytics.get('method_distribution', {}).get('quantity', {})
+        
+        # Default options with usage counts
+        options = [
+            {'label': 'Kelly-Optimized (Recommended)', 'value': 'kelly_optimized'},
+            {'label': 'Adaptive Kelly', 'value': 'adaptive_kelly'},
+            {'label': 'Volatility-Weighted', 'value': 'volatility_weighted'},
+            {'label': 'Sharpe-Maximizing', 'value': 'sharpe_maximizing'},
+            {'label': 'Fibonacci-Weighted', 'value': 'fibonacci_weighted'},
+            {'label': 'Risk-Parity', 'value': 'risk_parity'},
+            {'label': 'Price-Weighted', 'value': 'price_weighted'},
+            {'label': 'Equal Notional', 'value': 'equal_notional'},
+            {'label': 'Equal Quantity', 'value': 'equal_quantity'},
+            {'label': 'Linear Increase', 'value': 'linear_increase'},
+            {'label': 'Exponential Increase', 'value': 'exponential_increase'},
+            {'label': 'Probability-Weighted', 'value': 'probability_weighted'}
+        ]
+        
+        # Sort by usage frequency (descending)
+        def sort_key(option):
+            usage_count = method_usage.get(option['value'], 0)
+            # Put recommended first, then by usage
+            if option['value'] == 'kelly_optimized':
+                return (1, -usage_count)  # Recommended first
+            return (0, -usage_count)  # Then by usage
+        
+        return sorted(options, key=sort_key)
+    
+    def get_sorted_positioning_options(self):
+        """Get rung positioning options sorted by usage frequency"""
+        analytics = self.get_usage_analytics()
+        method_usage = analytics.get('method_distribution', {}).get('positioning', {})
+        
+        # Default options with usage counts
+        options = [
+            {'label': 'Linear Spacing (Recommended)', 'value': 'linear'},
+            {'label': 'Support/Resistance Clustering', 'value': 'support_resistance'},
+            {'label': 'Volume Profile Weighted', 'value': 'volume_profile'},
+            {'label': 'Touch Pattern Analysis', 'value': 'touch_pattern'},
+            {'label': 'Adaptive Probability', 'value': 'adaptive_probability'},
+            {'label': 'Expected Value Optimization', 'value': 'expected_value'},
+            {'label': 'Quantile-Based', 'value': 'quantile'},
+            {'label': 'Risk-Weighted', 'value': 'risk_weighted'},
+            {'label': 'Exponential Spacing', 'value': 'exponential'},
+            {'label': 'Logarithmic Spacing', 'value': 'logarithmic'},
+            {'label': 'Fibonacci Levels', 'value': 'fibonacci'},
+            {'label': 'Dynamic Density', 'value': 'dynamic_density'}
+        ]
+        
+        # Sort by usage frequency (descending)
+        def sort_key(option):
+            usage_count = method_usage.get(option['value'], 0)
+            # Put recommended first, then by usage
+            if option['value'] == 'linear':
+                return (1, -usage_count)  # Recommended first
+            return (0, -usage_count)  # Then by usage
+        
+        return sorted(options, key=sort_key)
+    
+    def get_sorted_crypto_options(self):
+        """Get cryptocurrency options sorted by usage frequency"""
+        analytics = self.get_usage_analytics()
+        crypto_usage = analytics.get('crypto_distribution', {})
+        
+        # Default options with usage counts
+        options = [
+            {'label': 'Solana (SOLUSDT)', 'value': 'SOLUSDT'},
+            {'label': 'Bitcoin (BTCUSDT)', 'value': 'BTCUSDT'},
+            {'label': 'Ethereum (ETHUSDT)', 'value': 'ETHUSDT'},
+            {'label': 'Cardano (ADAUSDT)', 'value': 'ADAUSDT'},
+            {'label': 'Polkadot (DOTUSDT)', 'value': 'DOTUSDT'},
+            {'label': 'Chainlink (LINKUSDT)', 'value': 'LINKUSDT'},
+            {'label': 'Uniswap (UNIUSDT)', 'value': 'UNIUSDT'},
+            {'label': 'Litecoin (LTCUSDT)', 'value': 'LTCUSDT'},
+            {'label': 'Binance Coin (BNBUSDT)', 'value': 'BNBUSDT'},
+            {'label': 'Polygon (MATICUSDT)', 'value': 'MATICUSDT'}
+        ]
+        
+        # Sort by usage frequency (descending)
+        def sort_key(option):
+            usage_count = crypto_usage.get(option['value'], 0)
+            # Put SOLUSDT first (default), then by usage
+            if option['value'] == 'SOLUSDT':
+                return (1, -usage_count)  # Default first
+            return (0, -usage_count)  # Then by usage
+        
+        return sorted(options, key=sort_key)
+        
+        # Precalculation Status Callback
+        @self.app.callback(
+            Output('precalc-status', 'children'),
+            [Input('precalc-interval', 'n_intervals')]
+        )
+        def update_precalc_status(n_intervals):
+            return self.get_precalc_status()
 
     
     def update_all_visualizations(self, aggression_level, num_rungs, timeframe_hours,
                                  budget, quantity_distribution, crypto_symbol, rung_positioning,
                                  trading_fee, min_notional, cache_data):
         """Main callback that updates all visualizations"""
+        # Pause precalculation for user priority
+        self.pause_precalculation()
+        
         # Debounce updates
         current_time = time.time() * 1000
         if current_time - self.last_update_time < self.update_debounce_ms:
+            self.resume_precalculation()
             return dash.no_update
         self.last_update_time = current_time
         
@@ -654,10 +785,26 @@ class InteractiveLadderGUI:
                 print("Warning: Missing input parameters")
                 return dash.no_update
             
-            # Calculate ladder configuration
-            ladder_data = self.calculator.calculate_ladder_configuration(
-                aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution,
-                crypto_symbol, rung_positioning
+            # Try to get precalculated result first
+            ladder_data = self.get_precalculated_result(
+                aggression_level, num_rungs, timeframe_hours, budget, 
+                quantity_distribution, crypto_symbol, rung_positioning
+            )
+            
+            # If not precalculated, calculate now
+            if ladder_data is None:
+                print(f"Calculating on-demand: {crypto_symbol} {aggression_level} {num_rungs} {timeframe_hours}h {budget} {quantity_distribution} {rung_positioning}")
+                ladder_data = self.calculator.calculate_ladder_configuration(
+                    aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution,
+                    crypto_symbol, rung_positioning
+                )
+            else:
+                print(f"Using precalculated result: {crypto_symbol} {aggression_level} {num_rungs} {timeframe_hours}h {budget} {quantity_distribution} {rung_positioning}")
+            
+            # Track usage of this configuration
+            self.track_configuration_usage(
+                aggression_level, num_rungs, timeframe_hours, budget,
+                quantity_distribution, crypto_symbol, rung_positioning
             )
             
             # Validate ladder data
@@ -687,12 +834,16 @@ class InteractiveLadderGUI:
                 'min_notional': min_notional
             }
             
+            # Resume precalculation after user request
+            self.resume_precalculation()
             return (*figures, *kpis.values(), buy_table, sell_table, cache_data)
             
         except Exception as e:
             print(f"Error in visualization update: {e}")
             import traceback
             traceback.print_exc()
+            # Resume precalculation even on error
+            self.resume_precalculation()
             return self._get_error_response(cache_data)
     
     def _get_error_response(self, cache_data):
@@ -805,7 +956,7 @@ class InteractiveLadderGUI:
             ], style={'width': '100%', 'borderCollapse': 'collapse', 'fontSize': '12px'})
             
             return table
-            
+
         except Exception as e:
             return html.Div(f"Error creating sell table: {e}", style={'color': '#dc3545'})
     
@@ -876,6 +1027,300 @@ class InteractiveLadderGUI:
         except Exception as e:
             print(f"Error generating CSV content: {e}")
             return "Error generating CSV content"
+    
+    def load_usage_stats(self):
+        """Load usage statistics from persistent storage"""
+        try:
+            import json
+            import os
+            
+            if os.path.exists(self.usage_file):
+                with open(self.usage_file, 'r') as f:
+                    self.usage_stats = json.load(f)
+                print(f"Loaded usage stats: {len(self.usage_stats)} configurations tracked")
+            else:
+                self.usage_stats = {}
+                print("No existing usage stats found, starting fresh")
+                
+        except Exception as e:
+            print(f"Error loading usage stats: {e}")
+            self.usage_stats = {}
+    
+    def save_usage_stats(self):
+        """Save usage statistics to persistent storage"""
+        try:
+            import json
+            
+            with open(self.usage_file, 'w') as f:
+                json.dump(self.usage_stats, f, indent=2)
+            print(f"Saved usage stats: {len(self.usage_stats)} configurations")
+            
+        except Exception as e:
+            print(f"Error saving usage stats: {e}")
+    
+    def track_configuration_usage(self, aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution, crypto_symbol, rung_positioning):
+        """Track usage of a configuration"""
+        config_key = self._generate_cache_key({
+            'aggression_level': aggression_level,
+            'num_rungs': num_rungs,
+            'timeframe_hours': timeframe_hours,
+            'budget': budget,
+            'quantity_distribution': quantity_distribution,
+            'crypto_symbol': crypto_symbol,
+            'rung_positioning': rung_positioning
+        })
+        
+        # Increment usage count
+        if config_key in self.usage_stats:
+            self.usage_stats[config_key]['count'] += 1
+            self.usage_stats[config_key]['last_used'] = time.time()
+        else:
+            self.usage_stats[config_key] = {
+                'count': 1,
+                'first_used': time.time(),
+                'last_used': time.time(),
+                'config': {
+                    'aggression_level': aggression_level,
+                    'num_rungs': num_rungs,
+                    'timeframe_hours': timeframe_hours,
+                    'budget': budget,
+                    'quantity_distribution': quantity_distribution,
+                    'crypto_symbol': crypto_symbol,
+                    'rung_positioning': rung_positioning
+                }
+            }
+        
+        # Save stats periodically (every 10 uses)
+        if self.usage_stats[config_key]['count'] % 10 == 0:
+            self.save_usage_stats()
+    
+    def get_most_used_configurations(self, limit=20):
+        """Get the most frequently used configurations"""
+        if not self.usage_stats:
+            return []
+        
+        # Sort by usage count (descending)
+        sorted_configs = sorted(
+            self.usage_stats.items(),
+            key=lambda x: x[1]['count'],
+            reverse=True
+        )
+        
+        # Return top configurations
+        return sorted_configs[:limit]
+    
+    def get_usage_analytics(self):
+        """Get usage analytics summary"""
+        if not self.usage_stats:
+            return {
+                'total_configurations': 0,
+                'total_uses': 0,
+                'most_popular_crypto': 'N/A',
+                'most_popular_methods': 'N/A',
+                'average_uses_per_config': 0
+            }
+        
+        total_configs = len(self.usage_stats)
+        total_uses = sum(stats['count'] for stats in self.usage_stats.values())
+        
+        # Analyze crypto usage
+        crypto_usage = {}
+        method_usage = {'quantity': {}, 'positioning': {}}
+        
+        for config_key, stats in self.usage_stats.items():
+            config = stats['config']
+            
+            # Track crypto usage
+            crypto = config['crypto_symbol']
+            crypto_usage[crypto] = crypto_usage.get(crypto, 0) + stats['count']
+            
+            # Track method usage
+            qty_method = config['quantity_distribution']
+            pos_method = config['rung_positioning']
+            
+            method_usage['quantity'][qty_method] = method_usage['quantity'].get(qty_method, 0) + stats['count']
+            method_usage['positioning'][pos_method] = method_usage['positioning'].get(pos_method, 0) + stats['count']
+        
+        most_popular_crypto = max(crypto_usage.items(), key=lambda x: x[1])[0] if crypto_usage else 'N/A'
+        most_popular_qty = max(method_usage['quantity'].items(), key=lambda x: x[1])[0] if method_usage['quantity'] else 'N/A'
+        most_popular_pos = max(method_usage['positioning'].items(), key=lambda x: x[1])[0] if method_usage['positioning'] else 'N/A'
+        
+        return {
+            'total_configurations': total_configs,
+            'total_uses': total_uses,
+            'most_popular_crypto': most_popular_crypto,
+            'most_popular_qty_method': most_popular_qty,
+            'most_popular_pos_method': most_popular_pos,
+            'average_uses_per_config': total_uses / total_configs if total_configs > 0 else 0,
+            'crypto_distribution': crypto_usage,
+            'method_distribution': method_usage
+        }
+    
+    def start_precalculations(self):
+        """Start background precalculations for common parameter combinations"""
+        if self.precalc_running:
+            return
+        
+        self.precalc_running = True
+        self.precalc_thread = threading.Thread(target=self._precalculate_common_configs, daemon=True)
+        self.precalc_thread.start()
+        print("Started background precalculations for improved responsiveness...")
+    
+    def _precalculate_common_configs(self):
+        """Precalculate common parameter combinations in background"""
+        try:
+            # Define common parameter combinations to precalculate
+            common_configs = self._get_common_configurations()
+            self.precalc_total = len(common_configs)
+            self.precalc_progress = 0
+            
+            print(f"Precalculating {self.precalc_total} common configurations...")
+            
+            for i, config in enumerate(common_configs):
+                try:
+                    # Check if paused for user priority
+                    while self.precalc_paused:
+                        time.sleep(0.1)  # Wait 100ms before checking again
+                    
+                    # Generate cache key
+                    cache_key = self._generate_cache_key(config)
+                    
+                    # Skip if already cached
+                    if cache_key in self.precalc_cache:
+                        continue
+                    
+                    # Calculate ladder configuration
+                    result = self.calculator.calculate_ladder_configuration(
+                        config['aggression_level'], config['num_rungs'], config['timeframe_hours'],
+                        config['budget'], config['quantity_distribution'], 
+                        config['crypto_symbol'], config['rung_positioning']
+                    )
+                    
+                    # Store in cache
+                    self.precalc_cache[cache_key] = result
+                    self.precalc_progress = i + 1
+                    
+                    # Progress update every 10 calculations
+                    if (i + 1) % 10 == 0:
+                        progress_pct = (i + 1) / self.precalc_total * 100
+                        print(f"Precalculation progress: {i + 1}/{self.precalc_total} ({progress_pct:.1f}%)")
+                    
+                except Exception as e:
+                    print(f"Error precalculating config {i + 1}: {e}")
+                    continue
+            
+            print(f"Precalculation complete! Cached {len(self.precalc_cache)} configurations.")
+            
+        except Exception as e:
+            print(f"Error in precalculation thread: {e}")
+        finally:
+            self.precalc_running = False
+    
+    def _get_common_configurations(self):
+        """Generate list of configurations to precalculate based on usage patterns"""
+        configs = []
+        
+        # Get most used configurations from usage stats
+        most_used = self.get_most_used_configurations(limit=30)
+        
+        # Add most used configurations first (highest priority)
+        for config_key, stats in most_used:
+            configs.append(stats['config'])
+        
+        # If we don't have enough usage data, fall back to default configurations
+        if len(configs) < 10:
+            print("Insufficient usage data, using default configurations")
+            configs.extend(self._get_default_configurations())
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_configs = []
+        for config in configs:
+            config_key = self._generate_cache_key(config)
+            if config_key not in seen:
+                seen.add(config_key)
+                unique_configs.append(config)
+        
+        print(f"Precalculating {len(unique_configs)} configurations (based on usage patterns)")
+        return unique_configs
+    
+    def _get_default_configurations(self):
+        """Get default configurations when usage data is insufficient"""
+        configs = []
+        
+        # Default configurations for new users
+        default_configs = [
+            # Most common defaults
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'linear_increase', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'equal_notional', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            
+            # Common variations
+            {'aggression_level': 2, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 4, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 3, 'num_rungs': 10, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 3, 'num_rungs': 30, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            
+            # Different timeframes
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 168, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 4320, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            
+            # Different budgets
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 500, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 5000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            
+            # Different positioning methods
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'exponential'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'fibonacci'},
+            
+            # Bitcoin configurations
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'BTCUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'linear_increase', 'crypto_symbol': 'BTCUSDT', 'rung_positioning': 'linear'},
+        ]
+        
+        return default_configs
+    
+    def _generate_cache_key(self, config):
+        """Generate a unique cache key for a configuration"""
+        return f"{config['crypto_symbol']}_{config['aggression_level']}_{config['num_rungs']}_{config['timeframe_hours']}_{config['budget']}_{config['quantity_distribution']}_{config['rung_positioning']}"
+    
+    def get_precalculated_result(self, aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution, crypto_symbol, rung_positioning):
+        """Get precalculated result if available, otherwise return None"""
+        config = {
+            'aggression_level': aggression_level,
+            'num_rungs': num_rungs,
+            'timeframe_hours': timeframe_hours,
+            'budget': budget,
+            'quantity_distribution': quantity_distribution,
+            'crypto_symbol': crypto_symbol,
+            'rung_positioning': rung_positioning
+        }
+        
+        cache_key = self._generate_cache_key(config)
+        return self.precalc_cache.get(cache_key)
+    
+    def pause_precalculation(self):
+        """Pause precalculation for user priority"""
+        self.precalc_paused = True
+        print("Precalculation paused for user request")
+    
+    def resume_precalculation(self):
+        """Resume precalculation after user request"""
+        self.precalc_paused = False
+        print("Precalculation resumed")
+    
+    def get_precalc_status(self):
+        """Get precalculation status for display"""
+        if not self.precalc_running:
+            analytics = self.get_usage_analytics()
+            if analytics['total_uses'] > 0:
+                return f"✓ {len(self.precalc_cache)} cached | {analytics['total_uses']} uses tracked | Most used: {analytics['most_popular_crypto']}"
+            else:
+                return f"✓ {len(self.precalc_cache)} configurations cached (learning usage patterns...)"
+        else:
+            progress_pct = (self.precalc_progress / self.precalc_total * 100) if self.precalc_total > 0 else 0
+            status = "Precalculating" if not self.precalc_paused else "Paused for user"
+            return f"{status}: {self.precalc_progress}/{self.precalc_total} ({progress_pct:.1f}%)"
     
     def run(self, debug=True, port=8050):
         """Run the application"""
