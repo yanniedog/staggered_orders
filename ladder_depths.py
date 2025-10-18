@@ -334,6 +334,142 @@ def calculate_probability_optimized_targets(buy_depths: np.ndarray, theta_sell: 
     return sell_depths, profit_targets
 
 
+def generate_exponential_depths(theta: float, p: float, d_min: float, d_max: float,
+                               num_rungs: int) -> np.ndarray:
+    """
+    Generate ladder depths using exponential spacing.
+
+    Args:
+        theta: Weibull scale parameter
+        p: Weibull shape parameter
+        d_min: Minimum depth
+        d_max: Maximum depth
+        num_rungs: Number of rungs
+
+    Returns:
+        Array of ladder depths with exponential spacing
+    """
+    # Convert depths to quantiles
+    q_min = weibull_cdf(d_min, theta, p)
+    q_max = weibull_cdf(d_max, theta, p)
+
+    # Generate exponentially spaced quantiles (more points near higher probabilities)
+    # Use exponential decay from high to low quantiles
+    exponents = np.linspace(0, 1, num_rungs)
+    quantiles = q_min + (q_max - q_min) * (1 - np.exp(-3 * exponents))  # Exponential growth from low to high
+
+    # Convert quantiles back to depths and sort
+    depths = np.array([weibull_quantile(q, theta, p) for q in quantiles])
+    depths = np.sort(depths)  # Ensure monotonically increasing
+
+    print(f"Generated {num_rungs} exponentially spaced depths:")
+    print(f"  Quantile range: {q_min:.3f} - {q_max:.3f}")
+    print(f"  Depth range: {depths[0]:.3f}% - {depths[-1]:.3f}%")
+
+    return depths
+
+
+def generate_logarithmic_depths(theta: float, p: float, d_min: float, d_max: float,
+                               num_rungs: int) -> np.ndarray:
+    """
+    Generate ladder depths using logarithmic spacing.
+
+    Args:
+        theta: Weibull scale parameter
+        p: Weibull shape parameter
+        d_min: Minimum depth
+        d_max: Maximum depth
+        num_rungs: Number of rungs
+
+    Returns:
+        Array of ladder depths with logarithmic spacing
+    """
+    # Convert depths to quantiles
+    q_min = weibull_cdf(d_min, theta, p)
+    q_max = weibull_cdf(d_max, theta, p)
+
+    # Generate logarithmically spaced quantiles (more points near lower depths)
+    # Use log spacing from low to high quantiles
+    log_space = np.logspace(np.log10(q_min + 0.001), np.log10(q_max), num_rungs)
+
+    # Convert quantiles back to depths
+    depths = np.array([weibull_quantile(q, theta, p) for q in log_space])
+
+    print(f"Generated {num_rungs} logarithmically spaced depths:")
+    print(f"  Quantile range: {q_min:.3f} - {q_max:.3f}")
+    print(f"  Depth range: {depths[0]:.3f}% - {depths[-1]:.3f}%")
+
+    return depths
+
+
+def generate_risk_weighted_depths(theta: float, p: float, d_min: float, d_max: float,
+                                 num_rungs: int, current_price: float) -> np.ndarray:
+    """
+    Generate ladder depths using risk-weighted positioning.
+
+    Args:
+        theta: Weibull scale parameter
+        p: Weibull shape parameter
+        d_min: Minimum depth
+        d_max: Maximum depth
+        num_rungs: Number of rungs
+        current_price: Current market price
+
+    Returns:
+        Array of ladder depths with risk-weighted positioning
+    """
+    # Create fine-grained depth range for analysis
+    fine_depths = np.linspace(d_min, d_max, 1000)
+
+    # Calculate risk factor for each depth (deeper = higher risk)
+    # Risk increases exponentially with depth
+    risk_factors = np.exp(fine_depths / 100)  # Exponential risk increase
+
+    # Calculate touch probabilities
+    touch_probs = np.exp(-(fine_depths / theta) ** p)
+
+    # Calculate expected value = touch_prob * (1 / risk_factor) for risk-adjusted positioning
+    expected_values = touch_probs / risk_factors
+
+    # Find peaks and high-EV zones
+    from scipy.signal import find_peaks
+    peaks, _ = find_peaks(expected_values, height=np.mean(expected_values))
+
+    if len(peaks) == 0:
+        # Fallback to quantile-based if no clear peaks
+        print("No clear peaks found for risk-weighted positioning, using quantile-based")
+        return generate_ladder_depths(theta, p, d_min, d_max, num_rungs)
+
+    # Create weighted sampling based on risk-adjusted expected value
+    weights = expected_values / np.sum(expected_values)
+
+    # Set random seed for reproducibility
+    np.random.seed(42)
+
+    # Sample depths with probability proportional to risk-adjusted expected value
+    selected_indices = np.random.choice(len(fine_depths), size=num_rungs,
+                                      replace=False, p=weights)
+
+    # Sort selected depths
+    selected_depths = np.sort(fine_depths[selected_indices])
+
+    # Ensure we have coverage across the range
+    if selected_depths[0] > d_min + 0.1:
+        selected_depths[0] = d_min
+    if selected_depths[-1] < d_max - 0.1:
+        selected_depths[-1] = d_max
+
+    selected_depths = np.sort(selected_depths)
+
+    print(f"Risk-weighted depth optimization:")
+    print(f"  Fine-grained analysis: {len(fine_depths)} points")
+    print(f"  Expected value range: {np.min(expected_values):.4f} - {np.max(expected_values):.4f}")
+    print(f"  Selected {num_rungs} depths with risk-adjusted positioning")
+    print(f"  Depth range: {selected_depths[0]:.3f}% - {selected_depths[-1]:.3f}%")
+
+    return selected_depths
+
+
 def calculate_ladder_depths(theta: float, p: float, num_rungs: int = None,
                           d_min: float = None, d_max: float = None,
                           method: str = 'quantile',
@@ -379,16 +515,27 @@ def calculate_ladder_depths(theta: float, p: float, num_rungs: int = None,
             print("Warning: current_price required for expected_value method, falling back to quantile")
             method = 'quantile'
         else:
-            depths = calculate_expected_value_depths(theta, p, d_min, d_max, num_rungs, 
+            depths = calculate_expected_value_depths(theta, p, d_min, d_max, num_rungs,
                                                    current_price, profit_target_pct)
     elif method == 'quantile':
         depths = generate_ladder_depths(theta, p, d_min, d_max, num_rungs)
     elif method == 'linear':
         depths = np.linspace(d_min, d_max, num_rungs)
         print(f"Generated {num_rungs} linearly spaced {direction} depths")
+    elif method == 'exponential':
+        depths = generate_exponential_depths(theta, p, d_min, d_max, num_rungs)
+    elif method == 'logarithmic':
+        depths = generate_logarithmic_depths(theta, p, d_min, d_max, num_rungs)
+    elif method == 'risk_weighted':
+        if current_price is None:
+            print("Warning: current_price required for risk_weighted method, falling back to quantile")
+            method = 'quantile'
+            depths = generate_ladder_depths(theta, p, d_min, d_max, num_rungs)
+        else:
+            depths = generate_risk_weighted_depths(theta, p, d_min, d_max, num_rungs, current_price)
     else:
-        raise ValueError(f"Unknown method: {method}. Use 'quantile', 'expected_value', or 'linear'")
-    
+        raise ValueError(f"Unknown method: {method}. Use 'quantile', 'expected_value', 'linear', 'exponential', 'logarithmic', or 'risk_weighted'")
+
     return depths
 
 

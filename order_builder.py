@@ -44,16 +44,72 @@ def round_to_step_size(quantity: float, step_size: float) -> float:
     return round(quantity / step_size) * step_size
 
 
-def calculate_order_specs(depths: np.ndarray, allocations: np.ndarray, 
-                        current_price: float) -> pd.DataFrame:
+def calculate_allocations(depths: np.ndarray, current_price: float,
+                         distribution_method: str) -> np.ndarray:
+    """
+    Calculate allocation amounts using different distribution methods.
+
+    Args:
+        depths: Array of depth percentages
+        current_price: Current market price
+        distribution_method: Distribution method to use
+
+    Returns:
+        Array of allocation amounts
+    """
+    # For now, use a simple budget-based calculation
+    # In a real implementation, this would use the actual budget
+    budget = 10000  # Default budget - should be passed as parameter
+    num_rungs = len(depths)
+
+    if distribution_method == 'equal_quantity':
+        # Equal quantity per rung
+        prices = current_price * (1 - depths / 100)
+        equal_qty = budget / num_rungs / prices.mean()
+        quantities = np.full(num_rungs, equal_qty)
+        allocations = quantities * prices
+        total_allocation = allocations.sum()
+        allocations = allocations * (budget / total_allocation)
+        return allocations
+
+    elif distribution_method == 'equal_notional':
+        # Equal notional value per rung
+        return np.full(num_rungs, budget / num_rungs)
+
+    elif distribution_method == 'linear_increase':
+        # Linear increase from first to last rung
+        weights = np.linspace(0.5, 2.0, num_rungs)
+        weights = weights / weights.sum()
+        return weights * budget
+
+    elif distribution_method == 'exponential_increase':
+        # Exponential increase
+        weights = np.exp(np.linspace(-1, 1, num_rungs))
+        weights = weights / weights.sum()
+        return weights * budget
+
+    elif distribution_method == 'risk_parity':
+        # Risk-parity approach
+        risk_weights = 1.0 / (depths + 1)
+        risk_weights = risk_weights / risk_weights.sum()
+        return risk_weights * budget
+
+    else:
+        # Default to equal notional
+        return np.full(num_rungs, budget / num_rungs)
+
+
+def calculate_order_specs(depths: np.ndarray, allocations: np.ndarray,
+                        current_price: float, distribution_method: str = 'price_weighted') -> pd.DataFrame:
     """
     Calculate order specifications for ladder rungs.
-    
+
     Args:
         depths: Array of ladder depths
-        allocations: Array of size allocations
+        allocations: Array of size allocations (can be None for auto-calculation)
         current_price: Current market price
-    
+        distribution_method: Method for distributing quantities if allocations not provided
+
     Returns:
         DataFrame with order specifications
     """
@@ -65,12 +121,16 @@ def calculate_order_specs(depths: np.ndarray, allocations: np.ndarray,
     min_qty = config['min_qty']
     
     orders = []
-    
+
+    # If allocations not provided or distribution method specified, calculate them
+    if allocations is None or distribution_method != 'price_weighted':
+        allocations = calculate_allocations(depths, current_price, distribution_method)
+
     for i, (depth, allocation) in enumerate(zip(depths, allocations)):
         # Calculate limit price
         limit_price = current_price * (1 - depth / 100)
         limit_price = round_to_tick_size(limit_price, tick_size)
-        
+
         # Calculate quantity
         quantity = allocation / limit_price
         quantity = round_to_step_size(quantity, step_size)

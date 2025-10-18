@@ -9,6 +9,7 @@ from typing import Dict, Tuple, List, Optional
 from functools import lru_cache
 import time
 import warnings
+import os
 
 # Import existing modules
 from ladder_depths import calculate_ladder_depths, calculate_sell_ladder_depths
@@ -17,6 +18,7 @@ from touch_analysis import analyze_touch_probabilities, analyze_upward_touch_pro
 from weibull_fit import fit_weibull_tail
 from data_fetcher import get_current_price
 from analysis import weibull_touch_probability
+from data_manager import data_manager
 
 warnings.filterwarnings('ignore')
 
@@ -29,27 +31,27 @@ class LadderCalculator:
         self.current_price = None
         self.weibull_params = None
         self.historical_data = None
-        
+        self.data_interval = '1h'
+
         # Load initial data
         self._load_initial_data()
-    
+
     def _load_initial_data(self):
         """Load initial data and Weibull parameters"""
         try:
             print("Loading initial data for GUI...")
-            
-            # Get current price
-            self.current_price = get_current_price()
-            
-            # Load historical data (this would be cached from main.py)
-            # For now, we'll use placeholder data structure
-            self.historical_data = self._load_cached_data()
-            
+
+            # Get current price for SOLUSDT (default)
+            self.current_price = data_manager.get_current_price('SOLUSDT')
+
+            # Load historical data using data manager (default to 720h timeframe)
+            self.historical_data, self.data_interval = data_manager.load_data(720)
+
             # Calculate initial Weibull parameters
             self.weibull_params = self._calculate_weibull_params()
-            
+
             print("Initial data loaded successfully")
-            
+
         except Exception as e:
             print(f"Warning: Could not load initial data: {e}")
             self.current_price = 100.0  # Fallback
@@ -58,52 +60,70 @@ class LadderCalculator:
                 'sell': {'theta': 2.5, 'p': 1.2}
             }
     
-    def _load_cached_data(self):
-        """Load cached historical data"""
+    def _calculate_weibull_params(self, timeframe_hours: int = 720):
+        """Calculate Weibull parameters from historical data for specific timeframe"""
         try:
-            # Try to load from cache file
-            import pandas as pd
-            df = pd.read_csv('cache_SOLUSDT_1h_1095d.csv')
-            return df
-        except:
-            # Return placeholder data structure
-            return None
-    
-    def _calculate_weibull_params(self):
-        """Calculate Weibull parameters from historical data"""
-        if self.historical_data is None:
-            return {
-                'buy': {'theta': 2.5, 'p': 1.2},
-                'sell': {'theta': 2.5, 'p': 1.2}
-            }
-        
-        try:
-            # Analyze touch probabilities
+            print(f"Calculating Weibull parameters for {timeframe_hours} hour timeframe...")
+
+            # Load appropriate data for this timeframe
+            data_df, interval = data_manager.load_data(timeframe_hours)
+
+            # Store interval for use in result
+            self.current_interval = interval
+
+            if data_df is None:
+                print("Warning: No historical data available, using fallback parameters")
+                return {
+                    'buy': {'theta': 2.5, 'p': 1.2},
+                    'sell': {'theta': 2.5, 'p': 1.2}
+                }
+
+            # Analyze touch probabilities with specific timeframe and interval
             depths, empirical_probs = analyze_touch_probabilities(
-                self.historical_data, 720, '1h'
+                data_df, timeframe_hours, interval, direction='buy'
             )
-            depths_upward, empirical_probs_upward = analyze_upward_touch_probabilities(
-                self.historical_data, 720, '1h'
+            depths_upward, empirical_probs_upward = analyze_touch_probabilities(
+                data_df, timeframe_hours, interval, direction='sell'
             )
-            
+
             # Fit Weibull distributions
             theta, p, fit_metrics = fit_weibull_tail(depths, empirical_probs)
             theta_sell, p_sell, fit_metrics_sell = fit_weibull_tail(depths_upward, empirical_probs_upward)
-            
+
+            print(f"Weibull parameters calculated - Buy: theta={theta:.3f}, p={p:.3f}, Sell: theta={theta_sell:.3f}, p={p_sell:.3f}")
+            print(f"Using {interval} data interval for {timeframe_hours}h timeframe")
+
             return {
                 'buy': {'theta': theta, 'p': p, 'fit_metrics': fit_metrics},
                 'sell': {'theta': theta_sell, 'p': p_sell, 'fit_metrics': fit_metrics_sell}
             }
-            
+
         except Exception as e:
-            print(f"Warning: Could not calculate Weibull parameters: {e}")
+            print(f"Warning: Could not calculate Weibull parameters for {timeframe_hours}h: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 'buy': {'theta': 2.5, 'p': 1.2},
                 'sell': {'theta': 2.5, 'p': 1.2}
             }
     
+    def recalculate_weibull_for_timeframe(self, timeframe_hours: int):
+        """
+        Recalculate Weibull parameters for a specific timeframe.
+        
+        Args:
+            timeframe_hours: Analysis timeframe in hours
+        
+        Returns:
+            Dictionary with updated Weibull parameters
+        """
+        return self._calculate_weibull_params(timeframe_hours)
+    
     def calculate_ladder_configuration(self, aggression_level: int, num_rungs: int, 
-                                     timeframe_hours: int, budget: float) -> Dict:
+                                     timeframe_hours: int, budget: float,
+                                     quantity_distribution: str = 'price_weighted',
+                                     crypto_symbol: str = 'SOLUSDT',
+                                     rung_positioning: str = 'quantile') -> Dict:
         """
         Calculate complete ladder configuration with caching.
         
@@ -112,6 +132,9 @@ class LadderCalculator:
             num_rungs: Number of ladder rungs
             timeframe_hours: Analysis timeframe
             budget: Total budget in USD
+            quantity_distribution: Method for distributing quantities across rungs
+            crypto_symbol: Cryptocurrency symbol (e.g., 'SOLUSDT')
+            rung_positioning: Method for positioning rungs ('quantile', 'expected_value', etc.)
         
         Returns:
             Dictionary with complete ladder data
@@ -121,17 +144,20 @@ class LadderCalculator:
             depth_ranges = self._get_depth_range_for_aggression(aggression_level)
             d_min, d_max = depth_ranges
             
-            # Get Weibull parameters
-            theta = self.weibull_params['buy']['theta']
-            p = self.weibull_params['buy']['p']
-            theta_sell = self.weibull_params['sell']['theta']
-            p_sell = self.weibull_params['sell']['p']
+            # Recalculate Weibull parameters for the specific timeframe
+            timeframe_weibull_params = self.recalculate_weibull_for_timeframe(timeframe_hours)
             
-            # Calculate buy ladder depths
+            # Get timeframe-specific Weibull parameters
+            theta = timeframe_weibull_params['buy']['theta']
+            p = timeframe_weibull_params['buy']['p']
+            theta_sell = timeframe_weibull_params['sell']['theta']
+            p_sell = timeframe_weibull_params['sell']['p']
+            
+            # Calculate buy ladder depths using selected positioning method
             buy_depths = calculate_ladder_depths(
                 theta, p, num_rungs=num_rungs,
                 d_min=d_min, d_max=d_max,
-                method='expected_value',
+                method=self._get_positioning_method(rung_positioning),
                 current_price=self.current_price,
                 profit_target_pct=50.0  # Default profit target
             )
@@ -139,7 +165,7 @@ class LadderCalculator:
             # Calculate sell ladder depths
             sell_depths, profit_targets = calculate_sell_ladder_depths(
                 theta_sell, p_sell, buy_depths,
-                profit_target_pct=50.0,
+                target_total_profit=50.0,
                 risk_adjustment_factor=1.5,
                 d_min_sell=d_min * 0.3,
                 d_max_sell=d_max * 0.8,
@@ -148,10 +174,16 @@ class LadderCalculator:
                 mean_reversion_rate=0.5
             )
             
-            # Optimize buy sizes
-            buy_allocations, alpha, expected_returns = optimize_sizes(
-                buy_depths, theta, p, budget, use_kelly=True
-            )
+            # Optimize buy sizes or use alternative distribution methods
+            if quantity_distribution == 'kelly_optimized':
+                buy_allocations, alpha, expected_returns = optimize_sizes(
+                    buy_depths, theta, p, budget, use_kelly=True
+                )
+            else:
+                # Use alternative distribution methods
+                buy_allocations = self._calculate_quantity_distribution(
+                    buy_depths, budget, quantity_distribution, current_price=self.current_price
+                )
             
             # Calculate buy quantities and prices
             buy_prices = self.current_price * (1 - buy_depths / 100)
@@ -175,20 +207,28 @@ class LadderCalculator:
             # Calculate joint probabilities
             joint_probs = buy_touch_probs * sell_touch_probs
             
-            # Calculate expected profits per pair
-            profit_per_pair = (sell_prices - buy_prices) / buy_prices * 100
+            # Calculate expected profits per pair using actual profit targets
+            profit_per_pair = actual_profits
             
-            # Calculate expected profit per dollar
-            expected_profit_per_dollar = np.sum(joint_probs * profit_per_pair * buy_quantities) / np.sum(buy_allocations)
+            # Calculate expected profit per dollar (properly weighted by allocations)
+            total_weighted_profit = np.sum(joint_probs * profit_per_pair * buy_allocations)
+            total_allocation = np.sum(buy_allocations)
+            expected_profit_per_dollar = total_weighted_profit / total_allocation if total_allocation > 0 else 0
             
-            # Calculate timeframe metrics
-            avg_joint_prob = np.mean(joint_probs)
-            expected_timeframe_hours = 1.0 / avg_joint_prob if avg_joint_prob > 0 else np.inf
+            # Calculate timeframe metrics using proper probability theory
+            # Expected time to first fill = 1 / (sum of individual probabilities - sum of joint probabilities)
+            individual_prob_sum = np.sum(buy_touch_probs) + np.sum(sell_touch_probs)
+            joint_prob_sum = np.sum(joint_probs)
+            net_probability = individual_prob_sum - joint_prob_sum
+            expected_timeframe_hours = 1.0 / net_probability if net_probability > 0 else np.inf
             
             # Calculate monthly metrics
             hours_per_month = 24 * 30
             expected_monthly_fills = hours_per_month / expected_timeframe_hours if expected_timeframe_hours < np.inf else 0
             expected_monthly_profit = expected_monthly_fills * np.sum(buy_allocations) * expected_profit_per_dollar / 100
+            
+            # Calculate sell allocations
+            sell_allocations = sell_quantities * sell_prices
             
             # Create comprehensive result
             result = {
@@ -202,6 +242,7 @@ class LadderCalculator:
                 'buy_prices': buy_prices,
                 'sell_prices': sell_prices,
                 'buy_allocations': buy_allocations,
+                'sell_allocations': sell_allocations,
                 'sell_quantities': sell_quantities,
                 'buy_quantities': buy_quantities,
                 'buy_touch_probs': buy_touch_probs,
@@ -214,8 +255,9 @@ class LadderCalculator:
                 'expected_timeframe_hours': expected_timeframe_hours,
                 'expected_monthly_fills': expected_monthly_fills,
                 'expected_monthly_profit': expected_monthly_profit,
-                'weibull_params': self.weibull_params,
+                'weibull_params': timeframe_weibull_params,  # Use timeframe-specific parameters
                 'depth_range': (d_min, d_max),
+                'data_interval': self.current_interval,  # Track which data interval was used
                 'timestamp': time.time()
             }
             
@@ -223,7 +265,7 @@ class LadderCalculator:
             
         except Exception as e:
             print(f"Error in ladder calculation: {e}")
-            return self._get_fallback_configuration(aggression_level, num_rungs, budget)
+            return self._get_fallback_configuration(aggression_level, num_rungs, budget, quantity_distribution, rung_positioning)
     
     def _get_depth_range_for_aggression(self, aggression_level: int) -> Tuple[float, float]:
         """Map aggression level to depth range"""
@@ -241,7 +283,88 @@ class LadderCalculator:
         }
         return depth_mappings.get(aggression_level, (2.5, 18.0))
     
-    def _get_fallback_configuration(self, aggression_level: int, num_rungs: int, budget: float) -> Dict:
+    def _calculate_quantity_distribution(self, depths: np.ndarray, budget: float,
+                                        distribution_method: str, current_price: float) -> np.ndarray:
+        """
+        Calculate quantity allocations using different distribution methods.
+
+        Args:
+            depths: Array of depth percentages
+            budget: Total budget in USD
+            distribution_method: Method for distribution ('equal_quantity', 'equal_notional', etc.)
+            current_price: Current market price
+
+        Returns:
+            Array of allocation amounts for each rung
+        """
+        num_rungs = len(depths)
+
+        if distribution_method == 'equal_quantity':
+            # Equal quantity per rung - same number of coins at each level
+            # But we need to respect budget constraint, so scale accordingly
+            prices = current_price * (1 - depths / 100)
+            # Start with equal quantities, then scale to fit budget
+            equal_qty = budget / num_rungs / prices.mean()  # Approximate
+            quantities = np.full(num_rungs, equal_qty)
+            allocations = quantities * prices
+            # Scale to exact budget
+            total_allocation = allocations.sum()
+            allocations = allocations * (budget / total_allocation)
+            return allocations
+
+        elif distribution_method == 'equal_notional':
+            # Equal notional value per rung - same USD amount at each level
+            return np.full(num_rungs, budget / num_rungs)
+
+        elif distribution_method == 'linear_increase':
+            # Linear increase from first to last rung
+            # First rung gets smallest allocation, last rung gets largest
+            weights = np.linspace(0.5, 2.0, num_rungs)  # From 0.5x to 2x average
+            weights = weights / weights.sum()  # Normalize to sum to 1
+            return weights * budget
+
+        elif distribution_method == 'exponential_increase':
+            # Exponential increase - closer rungs get smaller allocations
+            # Further rungs get exponentially larger allocations
+            weights = np.exp(np.linspace(-1, 1, num_rungs))  # Exponential curve
+            weights = weights / weights.sum()  # Normalize
+            return weights * budget
+
+        elif distribution_method == 'risk_parity':
+            # Risk-parity approach - allocate inversely to perceived risk (depth)
+            # Closer rungs (lower depth) are perceived as lower risk, get larger allocations
+            # Further rungs (higher depth) are perceived as higher risk, get smaller allocations
+            risk_weights = 1.0 / (depths + 1)  # Inverse relationship with depth
+            risk_weights = risk_weights / risk_weights.sum()  # Normalize
+            return risk_weights * budget
+
+        elif distribution_method == 'price_weighted':
+            # Current method - allocations inversely proportional to price
+            prices = current_price * (1 - depths / 100)
+            # This will be handled by the existing optimize_sizes function
+            # For now, return equal allocations as fallback
+            return np.full(num_rungs, budget / num_rungs)
+
+        else:
+            # Default to equal notional
+            print(f"Warning: Unknown distribution method '{distribution_method}', using equal_notional")
+            return np.full(num_rungs, budget / num_rungs)
+
+    def _get_positioning_method(self, rung_positioning: str) -> str:
+        """Map rung positioning UI option to ladder_depths method"""
+        method_mapping = {
+            'quantile': 'quantile',
+            'expected_value': 'expected_value',
+            'linear': 'linear',
+            'exponential': 'exponential',  # Will implement this
+            'logarithmic': 'logarithmic',  # Will implement this
+            'risk_weighted': 'risk_weighted'  # Will implement this
+        }
+        return method_mapping.get(rung_positioning, 'quantile')
+
+    def _get_fallback_configuration(self, aggression_level: int, num_rungs: int, budget: float,
+                                   quantity_distribution: str = 'equal_notional',
+                                   rung_positioning: str = 'quantile') -> Dict:
         """Get fallback configuration when calculation fails"""
         d_min, d_max = self._get_depth_range_for_aggression(aggression_level)
         
@@ -252,9 +375,15 @@ class LadderCalculator:
         buy_prices = self.current_price * (1 - buy_depths / 100)
         sell_prices = self.current_price * (1 + sell_depths / 100)
         
-        # Equal allocations
-        buy_allocations = np.full(num_rungs, budget / num_rungs)
+        # Use quantity distribution method for fallback too
+        buy_allocations = self._calculate_quantity_distribution(
+            buy_depths, budget, quantity_distribution, self.current_price
+        )
         buy_quantities = buy_allocations / buy_prices
+
+        # Apply rung positioning method for fallback if specified
+        if rung_positioning != 'quantile':
+            print(f"Warning: Fallback configuration doesn't support {rung_positioning} positioning, using quantile")
         sell_quantities = buy_quantities  # Simplified
         
         return {
@@ -344,6 +473,60 @@ class LadderCalculator:
             'frequencies': frequencies,
             'timeframe_hours': ladder_data['timeframe_hours']
         }
+    
+    def depth_to_price(self, depth: float, current_price: float) -> float:
+        """Convert depth percentage to actual price"""
+        return current_price * (1 - depth / 100)
+    
+    def price_to_depth(self, price: float, current_price: float) -> float:
+        """Convert actual price to depth percentage"""
+        return (current_price - price) / current_price * 100
+    
+    def format_price_label(self, price: float) -> str:
+        """Format price for display labels"""
+        return f"${price:.2f}"
+    
+    def get_price_levels(self, depths: np.ndarray, current_price: float) -> np.ndarray:
+        """Convert array of depths to price levels"""
+        return current_price * (1 - depths / 100)
+    
+    def get_sell_price_levels(self, sell_depths: np.ndarray, current_price: float) -> np.ndarray:
+        """Convert array of sell depths to price levels"""
+        return current_price * (1 + sell_depths / 100)
+    
+    def get_max_available_timeframe(self) -> int:
+        """
+        Get maximum available timeframe from cached historical data.
+        
+        Returns:
+            Maximum available hours based on historical data range
+        """
+        try:
+            # Try to load cached data
+            cache_file = 'cache_SOLUSDT_1h_1095d.csv'
+            if os.path.exists(cache_file):
+                df = pd.read_csv(cache_file, parse_dates=['open_time'])
+                if len(df) > 0:
+                    # Calculate time span between earliest and latest data
+                    time_span = df['open_time'].max() - df['open_time'].min()
+                    max_hours = int(time_span.total_seconds() / 3600)
+                    print(f"Max available timeframe from data: {max_hours} hours ({max_hours/24:.1f} days)")
+                    return max_hours
+        except Exception as e:
+            print(f"Warning: Could not determine max timeframe from cache: {e}")
+        
+        # Fallback to config value
+        try:
+            from config import load_config
+            config = load_config()
+            max_hours = config.get('lookback_days', 1095) * 24
+            print(f"Using config fallback max timeframe: {max_hours} hours ({max_hours/24:.1f} days)")
+            return max_hours
+        except:
+            # Final fallback
+            max_hours = 1095 * 24  # 3 years
+            print(f"Using hardcoded fallback max timeframe: {max_hours} hours ({max_hours/24:.1f} days)")
+            return max_hours
     
     def clear_cache(self):
         """Clear calculation cache"""

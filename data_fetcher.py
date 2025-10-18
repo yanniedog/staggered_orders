@@ -181,22 +181,24 @@ def is_cache_valid(filename: str, max_age_hours: int) -> bool:
     return file_age.total_seconds() / 3600 < max_age_hours
 
 
-def fetch_solusdt_data(force_refresh: bool = False) -> pd.DataFrame:
+def fetch_solusdt_data(interval: str = '1h', lookback_days: int = None, force_refresh: bool = False) -> pd.DataFrame:
     """
-    Fetch SOLUSDT 1h data with caching and graceful fallback.
-    
+    Fetch SOLUSDT data with caching and graceful fallback.
+
     Args:
+        interval: Kline interval ('1h', '1d', etc.)
+        lookback_days: Number of days to look back (uses config default if None)
         force_refresh: Force refresh even if cache exists
-    
+
     Returns:
         DataFrame with OHLCV data
     """
     config = load_config()
     symbol = config['symbol']
-    lookback_days = config['lookback_days']
+    if lookback_days is None:
+        lookback_days = config['lookback_days']
     cache_hours = config['cache_hours']
-    interval = '1h'
-    
+
     cache_file = get_cache_filename(symbol, interval, lookback_days)
     
     # Check cache first
@@ -272,25 +274,35 @@ def fetch_solusdt_data(force_refresh: bool = False) -> pd.DataFrame:
 
 
 @retry_with_backoff(max_retries=3, base_delay=1.0, exceptions=(requests.exceptions.RequestException,))
-def get_current_price() -> float:
-    """Get current SOLUSDT price from Binance."""
+def get_current_price(symbol: str = 'SOLUSDT') -> float:
+    """Get current cryptocurrency price from Binance.
+
+    Args:
+        symbol: Trading pair symbol (e.g., 'BTCUSDT', 'ETHUSDT', 'SOLUSDT')
+
+    Returns:
+        Current price as float
+    """
     url = "https://api.binance.com/api/v3/ticker/price"
-    params = {'symbol': 'SOLUSDT'}
-    
+    params = {'symbol': symbol}
+
     data = _make_api_request(url, params, timeout=10)
-    
+
     if 'price' not in data:
         raise ValueError(f"Invalid response format: missing 'price' field")
-    
+
     price = float(data['price'])
     
     if price <= 0:
         raise ValueError(f"Invalid price: {price}")
-    
-    if price > 10000:  # SOLUSDT shouldn't be > $10,000
-        raise ValueError(f"Unrealistic price: {price}")
-    
-    print(f"Current SOLUSDT price: ${price:.2f}")
+
+    # Different cryptocurrencies have different typical price ranges
+    if symbol in ['BTCUSDT', 'ETHUSDT'] and price > 100000:
+        raise ValueError(f"Price seems unreasonably high for {symbol}: {price}")
+    elif symbol not in ['BTCUSDT', 'ETHUSDT'] and price > 10000:
+        raise ValueError(f"Price seems unreasonably high for {symbol}: {price}")
+
+    print(f"Current {symbol} price: ${price:.2f}")
     return price
 
 

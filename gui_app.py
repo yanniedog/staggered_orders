@@ -35,8 +35,11 @@ class InteractiveLadderGUI:
         
         # Initialize calculation engines
         self.calculator = LadderCalculator()
-        self.visualizer = VisualizationEngine()
         self.historical = HistoricalAnalyzer()
+        self.visualizer = VisualizationEngine(self.historical)
+
+        # Track current timeframe for data interval management
+        self.current_timeframe_hours = 720
         
         # Load configuration
         self.config = load_config()
@@ -111,9 +114,10 @@ class InteractiveLadderGUI:
                 fullscreen=True
             ),
             
-            # Store for caching calculations
-            dcc.Store(id='calculation-cache'),
-            dcc.Store(id='historical-cache'),
+        # Store for caching calculations
+        dcc.Store(id='calculation-cache'),
+        dcc.Store(id='historical-cache'),
+        dcc.Store(id='cache-buster', data={'timestamp': time.time()}),
             
             # Interval for periodic updates
             dcc.Interval(
@@ -162,8 +166,25 @@ class InteractiveLadderGUI:
                     html.Label("Analysis Timeframe", style={'fontWeight': 'bold', 'color': '#ffffff'}),
                     dcc.Slider(
                         id='timeframe-slider',
-                        min=1, max=720, step=1, value=168,
-                        marks={1: "1h", 24: "1d", 168: "1w", 720: "30d"},
+                        min=1, max=87600, step=1, value=168,
+                        marks={
+                            1: "1h",
+                            24: "1d",
+                            168: "1w",
+                            720: "1m",
+                            2160: "3m",
+                            4320: "6m",
+                            6480: "9m",
+                            8760: "1y",
+                            13140: "1.5y",
+                            17520: "2y",
+                            21900: "2.5y",
+                            26280: "3y",
+                            35040: "4y",
+                            43800: "5y",
+                            87600: "10y",
+                            87601: "max"  # Will be updated dynamically
+                        },
                         tooltip={"placement": "bottom", "always_visible": True}
                     ),
                     html.Small("Historical analysis window in hours", 
@@ -178,24 +199,133 @@ class InteractiveLadderGUI:
                         type='number',
                         value=self.config['budget_usd'],
                         min=1000, max=1000000, step=1000,
-                        style={'width': '100%', 'padding': '8px', 'marginBottom': '10px', 
-                               'backgroundColor': '#3d3d3d', 'border': '1px solid #555555', 
+                        style={'width': '100%', 'padding': '8px', 'marginBottom': '10px',
+                               'backgroundColor': '#3d3d3d', 'border': '1px solid #555555',
                                'color': '#ffffff', 'borderRadius': '4px'}
                     ),
-                    html.Small("Total capital for ladder orders", 
+                    html.Small("Total capital for ladder orders",
+                             style={'color': '#6c757d'})
+                ], style={'marginBottom': '30px'}),
+
+                # Quantity Distribution Method
+                html.Div([
+                    html.Label("Quantity Distribution Method", style={'fontWeight': 'bold', 'color': '#ffffff'}),
+                    dcc.Dropdown(
+                        id='quantity-distribution-dropdown',
+                        options=[
+                            {'label': 'Price-Weighted (Current)', 'value': 'price_weighted'},
+                            {'label': 'Equal Quantity', 'value': 'equal_quantity'},
+                            {'label': 'Equal Notional', 'value': 'equal_notional'},
+                            {'label': 'Linear Increase', 'value': 'linear_increase'},
+                            {'label': 'Exponential Increase', 'value': 'exponential_increase'},
+                            {'label': 'Risk-Parity', 'value': 'risk_parity'},
+                            {'label': 'Kelly-Optimized', 'value': 'kelly_optimized'}
+                        ],
+                        value='price_weighted',
+                        style={'width': '100%', 'marginBottom': '10px',
+                               'backgroundColor': '#3d3d3d', 'color': '#000000', 'borderRadius': '4px'}
+                    ),
+                    html.Small("How quantities are distributed across ladder rungs",
                              style={'color': '#6c757d'})
                 ], style={'marginBottom': '30px'}),
                 
+                # Cryptocurrency Selection
+                html.Div([
+                    html.Label("Cryptocurrency", style={'fontWeight': 'bold', 'color': '#ffffff'}),
+                    dcc.Dropdown(
+                        id='crypto-dropdown',
+                        options=[
+                            {'label': 'Bitcoin (BTC)', 'value': 'BTCUSDT'},
+                            {'label': 'Ethereum (ETH)', 'value': 'ETHUSDT'},
+                            {'label': 'Solana (SOL)', 'value': 'SOLUSDT'},
+                            {'label': 'Cardano (ADA)', 'value': 'ADAUSDT'},
+                            {'label': 'Polygon (MATIC)', 'value': 'MATICUSDT'},
+                            {'label': 'Chainlink (LINK)', 'value': 'LINKUSDT'},
+                            {'label': 'Polkadot (DOT)', 'value': 'DOTUSDT'},
+                            {'label': 'Avalanche (AVAX)', 'value': 'AVAXUSDT'},
+                            {'label': 'Cosmos (ATOM)', 'value': 'ATOMUSDT'},
+                            {'label': 'Algorand (ALGO)', 'value': 'ALGOUSDT'},
+                            {'label': 'VeChain (VET)', 'value': 'VETUSDT'},
+                            {'label': 'Hedera (HBAR)', 'value': 'HBARUSDT'},
+                            {'label': 'Internet Computer (ICP)', 'value': 'ICPUSDT'},
+                            {'label': 'Theta (THETA)', 'value': 'THETAUSDT'},
+                            {'label': 'Fantom (FTM)', 'value': 'FTMUSDT'},
+                            {'label': 'Harmony (ONE)', 'value': 'ONEUSDT'},
+                            {'label': 'Near Protocol (NEAR)', 'value': 'NEARUSDT'},
+                            {'label': 'Flow (FLOW)', 'value': 'FLOWUSDT'},
+                            {'label': 'Helium (HNT)', 'value': 'HNTUSDT'},
+                            {'label': 'Arweave (AR)', 'value': 'ARUSDT'},
+                            {'label': 'The Graph (GRT)', 'value': 'GRTUSDT'},
+                            {'label': '0x (ZRX)', 'value': 'ZRXUSDT'},
+                            {'label': 'Basic Attention Token (BAT)', 'value': 'BATUSDT'},
+                            {'label': 'Enjin Coin (ENJ)', 'value': 'ENJUSDT'},
+                            {'label': 'Decentraland (MANA)', 'value': 'MANAUSDT'},
+                            {'label': 'Sandbox (SAND)', 'value': 'SANDUSDT'},
+                            {'label': 'ApeCoin (APE)', 'value': 'APEUSDT'},
+                            {'label': 'Immutable X (IMX)', 'value': 'IMXUSDT'},
+                            {'label': 'Loopring (LRC)', 'value': 'LRCUSDT'},
+                            {'label': '1inch (1INCH)', 'value': '1INCHUSDT'},
+                            {'label': 'SushiSwap (SUSHI)', 'value': 'SUSHIUSDT'},
+                            {'label': 'Uniswap (UNI)', 'value': 'UNIUSDT'},
+                            {'label': 'PancakeSwap (CAKE)', 'value': 'CAKEUSDT'},
+                            {'label': 'Compound (COMP)', 'value': 'COMPUSDT'},
+                            {'label': 'Maker (MKR)', 'value': 'MKRUSDT'},
+                            {'label': 'Aave (AAVE)', 'value': 'AAVEUSDT'},
+                            {'label': 'Yearn Finance (YFI)', 'value': 'YFIUSDT'},
+                            {'label': 'Curve DAO Token (CRV)', 'value': 'CRVUSDT'},
+                            {'label': 'Synthetix (SNX)', 'value': 'SNXUSDT'},
+                            {'label': 'Balancer (BAL)', 'value': 'BALUSDT'},
+                            {'label': 'Ren (REN)', 'value': 'RENUSDT'},
+                            {'label': 'Ocean Protocol (OCEAN)', 'value': 'OCEANUSDT'},
+                            {'label': 'Storj (STORJ)', 'value': 'STORJUSDT'},
+                            {'label': 'Livepeer (LPT)', 'value': 'LPTUSDT'},
+                            {'label': 'Ankr (ANKR)', 'value': 'ANKRUSDT'},
+                            {'label': 'Fetch.ai (FET)', 'value': 'FETUSDT'},
+                            {'label': 'SingularityNET (AGIX)', 'value': 'AGIXUSDT'},
+                            {'label': 'OriginTrail (TRAC)', 'value': 'TRACUSDT'},
+                            {'label': 'Numeraire (NMR)', 'value': 'NMRUSDT'},
+                            {'label': 'PAX Gold (PAXG)', 'value': 'PAXGUSDT'},
+                            {'label': 'Tether Gold (XAUT)', 'value': 'XAUTUSDT'}
+                        ],
+                        value='SOLUSDT',
+                        style={'width': '100%', 'marginBottom': '10px',
+                               'backgroundColor': '#3d3d3d', 'color': '#000000', 'borderRadius': '4px'}
+                    ),
+                    html.Small("Select cryptocurrency for ladder analysis",
+                             style={'color': '#6c757d'})
+                ], style={'marginBottom': '30px'}),
+
                 # Current Price Display
                 html.Div([
                     html.Label("Current Price", style={'fontWeight': 'bold', 'color': '#ffffff'}),
-                    html.Div(id='current-price-display', 
+                    html.Div(id='current-price-display',
                            style={'fontSize': '24px', 'color': '#28a745', 'marginBottom': '10px'}),
-                    html.Button("Refresh Price", id='refresh-price-btn', 
-                              style={'backgroundColor': '#007bff', 'color': '#ffffff', 
+                    html.Button("Refresh Price", id='refresh-price-btn',
+                              style={'backgroundColor': '#007bff', 'color': '#ffffff',
                                      'border': 'none', 'padding': '8px 16px', 'borderRadius': '4px'})
                 ], style={'marginBottom': '30px'}),
-                
+
+                # Rung Positioning Method
+                html.Div([
+                    html.Label("Rung Positioning Method", style={'fontWeight': 'bold', 'color': '#ffffff'}),
+                    dcc.Dropdown(
+                        id='rung-positioning-dropdown',
+                        options=[
+                            {'label': 'Quantile-Based (Current)', 'value': 'quantile'},
+                            {'label': 'Expected Value Optimization', 'value': 'expected_value'},
+                            {'label': 'Linear Spacing', 'value': 'linear'},
+                            {'label': 'Exponential Spacing', 'value': 'exponential'},
+                            {'label': 'Logarithmic Spacing', 'value': 'logarithmic'},
+                            {'label': 'Risk-Weighted', 'value': 'risk_weighted'}
+                        ],
+                        value='quantile',
+                        style={'width': '100%', 'marginBottom': '10px',
+                               'backgroundColor': '#3d3d3d', 'color': '#000000', 'borderRadius': '4px'}
+                    ),
+                    html.Small("How ladder rungs are positioned across price levels",
+                             style={'color': '#6c757d'})
+                ], style={'marginBottom': '30px'}),
+
                 # Action Buttons
                 html.Div([
                     html.Button("Recalculate All", id='recalculate-btn', 
@@ -321,22 +451,29 @@ class InteractiveLadderGUI:
              Input('rungs-slider', 'value'),
              Input('timeframe-slider', 'value'),
              Input('budget-input', 'value'),
-             Input('recalculate-btn', 'n_clicks')],
+             Input('quantity-distribution-dropdown', 'value'),
+             Input('crypto-dropdown', 'value'),
+             Input('rung-positioning-dropdown', 'value'),
+             Input('recalculate-btn', 'n_clicks'),
+             Input('cache-buster', 'data')],
             [State('calculation-cache', 'data')]
         )
-        def update_all_visualizations_callback(aggression_level, num_rungs, timeframe_hours, 
-                                             budget, recalculate_clicks, cache_data):
-            return self.update_all_visualizations(aggression_level, num_rungs, timeframe_hours, 
-                                                 budget, recalculate_clicks, cache_data)
+        def update_all_visualizations_callback(aggression_level, num_rungs, timeframe_hours,
+                                             budget, quantity_distribution, crypto_symbol, rung_positioning,
+                                             recalculate_clicks, cache_buster, cache_data):
+            return self.update_all_visualizations(aggression_level, num_rungs, timeframe_hours,
+                                                 budget, quantity_distribution, crypto_symbol, rung_positioning,
+                                                 recalculate_clicks, cache_data)
         
         # Current price callback
         @self.app.callback(
             Output('current-price-display', 'children'),
             [Input('refresh-price-btn', 'n_clicks'),
-             Input('interval-component', 'n_intervals')]
+             Input('interval-component', 'n_intervals'),
+             Input('crypto-dropdown', 'value')]
         )
-        def update_current_price_callback(refresh_clicks, interval_n):
-            return self.update_current_price(refresh_clicks, interval_n)
+        def update_current_price_callback(refresh_clicks, interval_n, crypto_symbol):
+            return self.update_current_price(refresh_clicks, interval_n, crypto_symbol)
         
         # Export callback
         @self.app.callback(
@@ -346,9 +483,19 @@ class InteractiveLadderGUI:
         )
         def export_configuration_callback(export_clicks, cache_data):
             return self.export_configuration(export_clicks, cache_data)
+
+        # Timeframe slider initialization callback
+        @self.app.callback(
+            [Output('timeframe-slider', 'max'),
+             Output('timeframe-slider', 'marks')],
+            [Input('cache-buster', 'data')]
+        )
+        def initialize_timeframe_slider_callback(cache_buster):
+            return self.initialize_timeframe_slider()
     
-    def update_all_visualizations(self, aggression_level, num_rungs, timeframe_hours, 
-                                 budget, recalculate_clicks, cache_data):
+    def update_all_visualizations(self, aggression_level, num_rungs, timeframe_hours,
+                                 budget, quantity_distribution, crypto_symbol, rung_positioning,
+                                 recalculate_clicks, cache_data):
         """Main callback that updates all visualizations"""
         # Debounce updates
         current_time = time.time() * 1000
@@ -364,7 +511,8 @@ class InteractiveLadderGUI:
             
             # Calculate ladder configuration
             ladder_data = self.calculator.calculate_ladder_configuration(
-                aggression_level, num_rungs, timeframe_hours, budget
+                aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution,
+                crypto_symbol, rung_positioning
             )
             
             # Validate ladder data
@@ -372,6 +520,9 @@ class InteractiveLadderGUI:
                 print("Error: Invalid ladder data returned")
                 return self._get_error_response(cache_data)
             
+            # Update current timeframe for data interval management
+            self.current_timeframe_hours = timeframe_hours
+
             # Generate all visualizations
             figures = self.visualizer.create_all_charts(ladder_data, timeframe_hours)
             
@@ -410,10 +561,10 @@ class InteractiveLadderGUI:
         empty_figs = (empty_fig,) * 9
         return (*empty_figs, "N/A", "N/A", "N/A", "N/A", cache_data)
     
-    def update_current_price(self, refresh_clicks, interval_n):
+    def update_current_price(self, refresh_clicks, interval_n, crypto_symbol='SOLUSDT'):
         """Update current price display"""
         try:
-            current_price = get_current_price()
+            current_price = get_current_price(crypto_symbol)
             return f"${current_price:.2f}"
         except Exception as e:
             return f"Error: {e}"
@@ -424,11 +575,50 @@ class InteractiveLadderGUI:
             # Implementation for export functionality
             return "Exported!"
         return "Export Configuration"
+
+    def initialize_timeframe_slider(self):
+        """Initialize timeframe slider with dynamic max value and marks"""
+        try:
+            # Get maximum available timeframe from calculator
+            max_hours = self.calculator.get_max_available_timeframe()
+
+            # Create comprehensive marks dictionary
+            base_marks = {
+                1: "1h",
+                24: "1d",
+                168: "1w",
+                720: "1m",
+                2160: "3m",
+                4320: "6m",
+                6480: "9m",
+                8760: "1y",
+                13140: "1.5y",
+                17520: "2y",
+                21900: "2.5y",
+                26280: "3y",
+                35040: "4y",
+                43800: "5y",
+                87600: "10y"
+            }
+
+            # Add max mark if it's different from 10y
+            if max_hours != 87600 and max_hours > 87600:
+                base_marks[max_hours] = f"max ({max_hours//24}d)"
+
+            print(f"Initialized timeframe slider: max={max_hours}h, {len(base_marks)} marks")
+            return max_hours, base_marks
+
+        except Exception as e:
+            print(f"Error initializing timeframe slider: {e}")
+            # Fallback to original values
+            fallback_marks = {1: "1h", 24: "1d", 168: "1w", 720: "30d"}
+            return 720, fallback_marks
     
     def run(self, debug=True, port=8050):
         """Run the application"""
         print(f"Starting Interactive Ladder GUI on http://localhost:{port}")
-        self.app.run(debug=debug, port=port)
+        print("Note: If you see cached data, please hard refresh your browser (Ctrl+F5)")
+        self.app.run(debug=debug, port=port, dev_tools_hot_reload=True)
 
 if __name__ == "__main__":
     gui = InteractiveLadderGUI()
