@@ -708,6 +708,16 @@ class InteractiveLadderGUI:
                 return "🔄 Processing your request..."
             return "✓ Ready"
 
+        # User Request Status Text when Hidden
+        @self.app.callback(
+            Output('user-request-status', 'children'),
+            [Input('user-request-status', 'style')]
+        )
+        def update_user_request_text_when_hidden(style):
+            if style.get('display') == 'none':
+                return "✓ Ready"
+            return dash.no_update
+
         # User Request Status Visibility Callback (triggered by calculation callback)
         @self.app.callback(
             Output('user-request-status', 'style'),
