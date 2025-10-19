@@ -35,16 +35,19 @@ class VisualizationEngine:
             'neutral': '#6c757d'
         }
         
-        # Chart styling
+        # Chart styling with performance optimizations
         self.layout_template = {
             'plot_bgcolor': 'rgba(0,0,0,0)',
             'paper_bgcolor': 'rgba(0,0,0,0)',
             'font': {'color': '#ffffff', 'size': 12},
-            'xaxis': {'gridcolor': '#444444', 'color': '#ffffff'},
-            'yaxis': {'gridcolor': '#444444', 'color': '#ffffff'},
-            'colorway': [self.colors['primary'], self.colors['secondary'], 
-                        self.colors['success'], self.colors['danger'], 
-                        self.colors['warning'], self.colors['info']]
+            'xaxis': {'gridcolor': '#444444', 'color': '#ffffff', 'showgrid': True},
+            'yaxis': {'gridcolor': '#444444', 'color': '#ffffff', 'showgrid': True},
+            'colorway': [self.colors['primary'], self.colors['secondary'],
+                        self.colors['success'], self.colors['danger'],
+                        self.colors['warning'], self.colors['info']],
+            # Performance optimizations
+            'modebar': {'remove': ['zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d']},
+            'config': {'displayModeBar': False, 'responsive': True}
         }
     
     def create_all_charts(self, ladder_data: Dict, timeframe_hours: int) -> Tuple:
@@ -76,6 +79,16 @@ class VisualizationEngine:
             sell_prices = ladder_data['sell_prices']
             buy_allocations = ladder_data['buy_allocations']
             current_price = ladder_data['current_price']
+
+            # Performance optimization: limit to max 50 points per side for very large ladders
+            max_points = 50
+            if len(buy_prices) > max_points:
+                step = len(buy_prices) // max_points
+                buy_indices = range(0, len(buy_prices), step)[:max_points]
+                sell_indices = range(0, len(sell_prices), step)[:max_points]
+            else:
+                buy_indices = range(len(buy_prices))
+                sell_indices = range(len(sell_prices))
             
             # Create figure
             fig = go.Figure()
@@ -84,25 +97,34 @@ class VisualizationEngine:
             fig.add_hline(y=current_price, line_dash="dash", line_color="white", 
                          annotation_text="Current Price", annotation_position="top right")
             
+            # Use filtered data for performance
+            buy_prices_filtered = [buy_prices[i] for i in buy_indices]
+            sell_prices_filtered = [sell_prices[i] for i in sell_indices]
+            buy_depths_filtered = [buy_depths[i] for i in buy_indices]
+            sell_depths_filtered = [sell_depths[i] for i in sell_indices]
+            buy_allocations_filtered = [buy_allocations[i] for i in buy_indices]
+            sell_allocations_filtered = [ladder_data.get('sell_allocations', ladder_data['sell_quantities'] * sell_prices)[i] for i in sell_indices]
+
             # Calculate marker sizes based on allocation (normalized)
-            max_allocation = np.max(buy_allocations)
+            max_allocation = np.max(buy_allocations) if buy_allocations.size > 0 else 1
             min_marker_size = 8
             max_marker_size = 25
-            buy_marker_sizes = min_marker_size + (buy_allocations / max_allocation) * (max_marker_size - min_marker_size)
-            
+            buy_marker_sizes = [min_marker_size + (alloc / max_allocation) * (max_marker_size - min_marker_size)
+                              for alloc in buy_allocations_filtered]
+
             # Calculate buy volumes (quantity of coins)
-            buy_volumes = buy_allocations / buy_prices
-            
+            buy_volumes = [alloc / price for alloc, price in zip(buy_allocations_filtered, buy_prices_filtered)]
+
             # Add buy orders (scatter) - price on y-axis, allocation as marker size
             fig.add_trace(go.Scatter(
-                x=list(range(len(buy_prices))),  # Use index for x-axis
-                y=buy_prices,
+                x=list(range(len(buy_prices_filtered))),  # Use index for x-axis
+                y=buy_prices_filtered,
                 mode='markers',
                 name='Buy Orders',
                 marker=dict(
                     size=buy_marker_sizes,
                     color=self.colors['buy'],
-                    line=dict(width=2, color='white'),
+                    line=dict(width=1, color='white'),  # Reduced line width for performance
                     opacity=0.8
                 ),
                 hovertemplate='<b>Buy Order</b><br>' +
@@ -110,24 +132,24 @@ class VisualizationEngine:
                              'Allocation: $%{customdata[0]:,.0f}<br>' +
                              'Volume: %{customdata[1]:,.2f} coins<br>' +
                              'Depth: %{text:.2f}%<extra></extra>',
-                customdata=np.column_stack([buy_allocations, buy_volumes]),
-                text=buy_depths
+                customdata=np.column_stack([buy_allocations_filtered, buy_volumes]),
+                text=buy_depths_filtered
             ))
-            
+
             # Add sell orders (scatter)
-            sell_allocations = ladder_data.get('sell_allocations', ladder_data['sell_quantities'] * sell_prices)
-            sell_volumes = ladder_data['sell_quantities']
-            sell_marker_sizes = min_marker_size + (sell_allocations / max_allocation) * (max_marker_size - min_marker_size)
-            
+            sell_volumes = [ladder_data['sell_quantities'][i] for i in sell_indices]
+            sell_marker_sizes = [min_marker_size + (alloc / max_allocation) * (max_marker_size - min_marker_size)
+                               for alloc in sell_allocations_filtered]
+
             fig.add_trace(go.Scatter(
-                x=list(range(len(sell_prices))),  # Use index for x-axis
-                y=sell_prices,
+                x=list(range(len(sell_prices_filtered))),  # Use index for x-axis
+                y=sell_prices_filtered,
                 mode='markers',
                 name='Sell Orders',
                 marker=dict(
                     size=sell_marker_sizes,
                     color=self.colors['sell'],
-                    line=dict(width=2, color='white'),
+                    line=dict(width=1, color='white'),  # Reduced line width for performance
                     opacity=0.8
                 ),
                 hovertemplate='<b>Sell Order</b><br>' +
@@ -135,8 +157,8 @@ class VisualizationEngine:
                              'Allocation: $%{customdata[0]:,.0f}<br>' +
                              'Volume: %{customdata[1]:,.2f} coins<br>' +
                              'Depth: %{text:.2f}%<extra></extra>',
-                customdata=np.column_stack([sell_allocations, sell_volumes]),
-                text=sell_depths
+                customdata=np.column_stack([sell_allocations_filtered, sell_volumes]),
+                text=sell_depths_filtered
             ))
             
             # Update layout

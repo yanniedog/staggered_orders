@@ -38,18 +38,35 @@ class LadderCalculator:
         self._load_initial_data()
 
     def _load_initial_data(self):
-        """Load initial data and Weibull parameters"""
+        """Load initial data and Weibull parameters with optimizations"""
         try:
             print("Loading initial data for GUI...")
 
-            # Get current price for SOLUSDT (default)
-            self.current_price = data_manager.get_current_price('SOLUSDT')
+            # Get current price for SOLUSDT (default) - cache this
+            if not hasattr(self, '_current_price_cache') or self._current_price_cache is None:
+                self.current_price = data_manager.get_current_price('SOLUSDT')
+                self._current_price_cache = self.current_price
+            else:
+                self.current_price = self._current_price_cache
 
-            # Load historical data using data manager (default to 720h timeframe)
-            self.historical_data, self.data_interval = data_manager.load_data(720)
+            # Load historical data using data manager (default to 720h timeframe) - cache this too
+            cache_key = f"720_SOLUSDT"
+            if not hasattr(self, '_data_cache') or cache_key not in self._data_cache:
+                self.historical_data, self.data_interval = data_manager.load_data(720)
+                if not hasattr(self, '_data_cache'):
+                    self._data_cache = {}
+                self._data_cache[cache_key] = (self.historical_data, self.data_interval)
+            else:
+                self.historical_data, self.data_interval = self._data_cache[cache_key]
 
-            # Calculate initial Weibull parameters
-            self.weibull_params = self._calculate_weibull_params()
+            # Calculate initial Weibull parameters - also cache these
+            if not hasattr(self, '_weibull_cache') or '720' not in self._weibull_cache:
+                self.weibull_params = self._calculate_weibull_params()
+                if not hasattr(self, '_weibull_cache'):
+                    self._weibull_cache = {}
+                self._weibull_cache['720'] = self.weibull_params
+            else:
+                self.weibull_params = self._weibull_cache['720']
 
             print("Initial data loaded successfully")
 
