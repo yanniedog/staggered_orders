@@ -15,7 +15,6 @@ import threading
 import queue
 import os
 from functools import lru_cache
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import warnings
 
 # Import our custom modules
@@ -25,6 +24,14 @@ from gui_historical import HistoricalAnalyzer
 from data_fetcher import get_current_price
 from config import load_config
 from usage_tracker import UsageTracker
+from gui_utils import (
+    generate_cache_key, map_timeframe_slider_to_hours, format_timeframe_hours,
+    validate_configuration, get_timeframe_labels, get_aggression_labels,
+    calculate_debounce_delay, create_error_response, create_loading_response,
+    get_chart_priority, get_crypto_explanations, get_timeframe_explanations,
+    get_quantity_distribution_explanations, get_rung_positioning_explanations,
+    generate_smart_recommendations
+)
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
@@ -68,14 +75,6 @@ class InteractiveLadderGUI:
         
         # Usage tracking system
         self.usage_tracker = UsageTracker('usage_stats.json')
-
-        # Async processing setup
-        self.chart_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix='chart_worker')
-        self.chart_cache = {}  # Individual chart cache
-        self.calculation_cache = {}  # Full calculation cache
-        self.component_cache = {}  # Component-level cache (KPIs, tables, etc.)
-        self.chart_futures = {}
-        self.current_calculation_id = 0
 
         # Smart recalculation system
         self.last_settings = {}  # Track last used settings
@@ -123,13 +122,40 @@ class InteractiveLadderGUI:
                     'boxShadow': '0 2px 4px rgba(0,0,0,0.3)'
                 }),
 
-                # Precalculation Status Indicator (Top Left Corner)
+                # Status Indicators (Top Left Corner)
                 html.Div([
-                    html.Div(id='precalc-status',
-                            style={'color': '#28a745', 'fontSize': '11px', 'textAlign': 'center',
-                                   'padding': '8px', 'backgroundColor': '#1a1a1a', 'borderRadius': '0 0 8px 8px',
-                                   'border': '1px solid #444444', 'marginBottom': '10px'})
-                ], style={'marginBottom': '5px'}),
+                    # Precalculation Status with Progress Bar
+                    html.Div([
+                        html.Div([
+                            html.Span("📊", style={'fontSize': '14px', 'marginRight': '8px'}),
+                            html.Span(id='precalc-status', style={'fontSize': '12px', 'fontWeight': 'bold'})
+                        ], style={'marginBottom': '5px'}),
+                        # Progress Bar
+                        html.Div([
+                            html.Div(id='precalc-progress-bar', style={
+                                'width': '0%', 'height': '4px', 'backgroundColor': '#28a745',
+                                'borderRadius': '2px', 'transition': 'width 0.3s ease'
+                            })
+                        ], style={
+                            'width': '100%', 'height': '4px', 'backgroundColor': '#444444',
+                            'borderRadius': '2px', 'overflow': 'hidden'
+                        })
+                    ], style={
+                        'padding': '10px', 'backgroundColor': '#2d2d2d', 'borderRadius': '8px',
+                        'border': '1px solid #444444', 'marginBottom': '10px',
+                        'boxShadow': '0 2px 4px rgba(0,0,0,0.3)'
+                    }),
+                    
+                    # User Request Status
+                    html.Div([
+                        html.Span("⚡", style={'fontSize': '14px', 'marginRight': '8px'}),
+                        html.Span(id='user-request-status', style={'fontSize': '12px', 'fontWeight': 'bold'})
+                    ], style={
+                        'padding': '8px', 'backgroundColor': '#2d2d2d', 'borderRadius': '6px',
+                        'border': '1px solid #444444', 'marginBottom': '10px',
+                        'display': 'none'  # Hidden by default, shown during calculations
+                    }, id='user-request-status-container')
+                ], style={'marginBottom': '10px'}),
                 
                 self.create_control_panel()
             ], style={
@@ -217,7 +243,7 @@ class InteractiveLadderGUI:
                             "• Quantity: ", html.Span("Kelly Optimized", style={'color': '#00bfff', 'fontWeight': 'bold'}),
                             " - Best risk-adjusted returns",
                             html.Br(),
-                            "• Positioning: ", html.Span("Dynamic Density", style={'color': '#00bfff', 'fontWeight': 'bold'}),
+                            "• Positioning: ", html.Span("Dynamic Density (Default)", style={'color': '#00bfff', 'fontWeight': 'bold'}),
                             " - Adapts to market volatility",
                             html.Br(),
                             "• Timeframe: ", html.Span("1-3 Years", style={'color': '#00bfff', 'fontWeight': 'bold'}),
@@ -242,7 +268,20 @@ class InteractiveLadderGUI:
                     })
                 ], style={'marginBottom': '25px', 'paddingBottom': '20px', 'borderBottom': '2px solid #444444'}),
                 
-                # Aggression Level Slider
+                # Smart Recommendations Section
+                html.Div([
+                    html.Label("🎯 Smart Recommendations", style={'fontWeight': 'bold', 'color': '#ffc107', 'fontSize': '16px'}),
+                    html.Div(id='smart-recommendations', children=[
+                        html.P("Adjust settings above to see personalized recommendations", 
+                              style={'color': '#6c757d', 'fontStyle': 'italic', 'textAlign': 'center'})
+                    ], style={
+                        'padding': '12px',
+                        'backgroundColor': '#2d2d2d',
+                        'borderRadius': '8px',
+                        'border': '1px solid #444444',
+                        'marginTop': '8px'
+                    })
+                ], style={'marginBottom': '25px', 'paddingBottom': '20px', 'borderBottom': '2px solid #444444'}),
                 html.Div([
                     html.Label("Aggression Level", style={'fontWeight': 'bold', 'color': '#ffffff'}),
                     dcc.Slider(
@@ -270,7 +309,10 @@ class InteractiveLadderGUI:
                 
                 # Timeframe Slider
                 html.Div([
-                    html.Label("Analysis Timeframe", style={'fontWeight': 'bold', 'color': '#ffffff'}),
+                    html.Label([
+                        "Analysis Timeframe ",
+                        html.Span("ℹ️", style={'fontSize': '12px', 'marginLeft': '5px', 'cursor': 'help'})
+                    ], style={'fontWeight': 'bold', 'color': '#ffffff'}),
                     dcc.Slider(
                         id='timeframe-slider',
                         min=0, max=7, step=1, value=2,
@@ -292,7 +334,13 @@ class InteractiveLadderGUI:
                     ),
                     html.Div(id='timeframe-label', style={'color': '#ffffff', 'marginTop': '10px', 'fontSize': '14px'}),
                     html.Small("Historical analysis window", 
-                             style={'color': '#6c757d'})
+                             style={'color': '#6c757d'}),
+                    html.Div(id='timeframe-explanation', 
+                            style={
+                                'color': '#ffffff', 'marginTop': '8px', 'fontSize': '13px', 
+                                'fontStyle': 'italic', 'backgroundColor': '#2d2d2d', 'padding': '8px',
+                                'borderRadius': '4px', 'border': '1px solid #444444'
+                            })
                 ], style={'marginBottom': '30px'}),
                 
                 # Budget Input
@@ -313,7 +361,10 @@ class InteractiveLadderGUI:
 
                 # Quantity Distribution Method
                 html.Div([
-                    html.Label("Quantity Distribution Method", style={'fontWeight': 'bold', 'color': '#ffffff'}),
+                    html.Label([
+                        "Quantity Distribution Method ",
+                        html.Span("ℹ️", style={'fontSize': '12px', 'marginLeft': '5px', 'cursor': 'help'})
+                    ], style={'fontWeight': 'bold', 'color': '#ffffff'}),
                     dcc.Dropdown(
                         id='quantity-distribution-dropdown',
                         options=self.get_sorted_quantity_options(),
@@ -324,12 +375,19 @@ class InteractiveLadderGUI:
                     html.Small("How quantities are distributed across ladder rungs",
                              style={'color': '#6c757d'}),
                     html.Div(id='quantity-distribution-explanation', 
-                            style={'color': '#ffffff', 'marginTop': '8px', 'fontSize': '13px', 'fontStyle': 'italic'})
+                            style={
+                                'color': '#ffffff', 'marginTop': '8px', 'fontSize': '13px', 
+                                'fontStyle': 'italic', 'backgroundColor': '#2d2d2d', 'padding': '8px',
+                                'borderRadius': '4px', 'border': '1px solid #444444'
+                            })
                 ], style={'marginBottom': '30px'}),
                 
                 # Rung Positioning Method
                 html.Div([
-                    html.Label("Rung Positioning Method", style={'fontWeight': 'bold', 'color': '#ffffff'}),
+                    html.Label([
+                        "Rung Positioning Method ",
+                        html.Span("ℹ️", style={'fontSize': '12px', 'marginLeft': '5px', 'cursor': 'help'})
+                    ], style={'fontWeight': 'bold', 'color': '#ffffff'}),
                     dcc.Dropdown(
                         id='rung-positioning-dropdown',
                         options=self.get_sorted_positioning_options(),
@@ -340,7 +398,11 @@ class InteractiveLadderGUI:
                     html.Small("How ladder rungs are positioned across price levels",
                              style={'color': '#6c757d'}),
                     html.Div(id='rung-positioning-explanation', 
-                            style={'color': '#ffffff', 'marginTop': '8px', 'fontSize': '13px', 'fontStyle': 'italic'})
+                            style={
+                                'color': '#ffffff', 'marginTop': '8px', 'fontSize': '13px', 
+                                'fontStyle': 'italic', 'backgroundColor': '#2d2d2d', 'padding': '8px',
+                                'borderRadius': '4px', 'border': '1px solid #444444'
+                            })
                 ], style={'marginBottom': '30px'}),
 
                 # Current Price Display
@@ -429,7 +491,10 @@ class InteractiveLadderGUI:
                 
                 # Cryptocurrency Selection
                 html.Div([
-                    html.Label("Cryptocurrency", style={'fontWeight': 'bold', 'color': '#ffffff'}),
+                    html.Label([
+                        "Cryptocurrency ",
+                        html.Span("ℹ️", style={'fontSize': '12px', 'marginLeft': '5px', 'cursor': 'help'})
+                    ], style={'fontWeight': 'bold', 'color': '#ffffff'}),
                     dcc.Dropdown(
                         id='crypto-dropdown',
                         className='dark-dropdown',
@@ -438,8 +503,14 @@ class InteractiveLadderGUI:
                         style={'width': '100%', 'marginBottom': '10px', 'borderRadius': '4px'}
                     ),
                     html.Small("Select cryptocurrency for ladder analysis",
-                             style={'color': '#6c757d'})
-                ])
+                             style={'color': '#6c757d'}),
+                    html.Div(id='crypto-explanation', 
+                            style={
+                                'color': '#ffffff', 'marginTop': '8px', 'fontSize': '13px', 
+                                'fontStyle': 'italic', 'backgroundColor': '#2d2d2d', 'padding': '8px',
+                                'borderRadius': '4px', 'border': '1px solid #444444'
+                            })
+                ], style={'marginBottom': '30px'})
             ], style={'backgroundColor': '#2d2d2d', 'padding': '20px', 'borderRadius': '0 0 8px 8px', 
                      'border': '1px solid #444444', 'margin': '0px'})
         ])
@@ -568,12 +639,11 @@ class InteractiveLadderGUI:
                                              budget, quantity_distribution, crypto_symbol, rung_positioning,
                                              trading_fee, min_notional, cache_buster, cache_data):
             # Map slider position to actual hours
-            timeframe_map = {0: 24, 1: 168, 2: 720, 3: 4320, 4: 8760, 5: 26280, 6: 43800, 7: 87600}
-            timeframe_hours = timeframe_map.get(timeframe_slider, 720)
+            timeframe_hours = map_timeframe_slider_to_hours(timeframe_slider)
 
-            return self.update_all_visualizations_async(aggression_level, num_rungs, timeframe_hours,
-                                                       budget, quantity_distribution, crypto_symbol, rung_positioning,
-                                                       trading_fee, min_notional, cache_data)
+            return self.update_all_visualizations(aggression_level, num_rungs, timeframe_hours,
+                                                budget, quantity_distribution, crypto_symbol, rung_positioning,
+                                                trading_fee, min_notional, cache_data)
         
         # Current price callback
         @self.app.callback(
@@ -632,20 +702,7 @@ class InteractiveLadderGUI:
             [Input('quantity-distribution-dropdown', 'value')]
         )
         def update_quantity_distribution_explanation(method):
-            explanations = {
-                'kelly_optimized': "Kelly Criterion optimizes position sizes based on win probability and payoff ratio for maximum long-term growth.",
-                'adaptive_kelly': "Adaptive Kelly adjusts position sizes dynamically based on recent market performance and volatility.",
-                'volatility_weighted': "Volatility-weighted allocation reduces position sizes in high-volatility areas to manage risk.",
-                'sharpe_maximizing': "Sharpe-maximizing allocation optimizes the risk-adjusted return ratio across all ladder positions.",
-                'fibonacci_weighted': "Fibonacci-weighted allocation uses Fibonacci sequence ratios to distribute capital across rungs.",
-                'risk_parity': "Risk-parity allocation equalizes risk contribution from each ladder position.",
-                'price_weighted': "Price-weighted allocation distributes more capital to lower-priced rungs for better entry points.",
-                'equal_notional': "Equal notional allocation distributes the same dollar amount to each ladder rung.",
-                'equal_quantity': "Equal quantity allocation distributes the same number of coins to each ladder rung.",
-                'linear_increase': "Linear increase allocation gradually increases position sizes from lowest to highest rungs.",
-                'exponential_increase': "Exponential increase allocation exponentially increases position sizes across rungs.",
-                'probability_weighted': "Probability-weighted allocation allocates more capital to rungs with higher touch probabilities."
-            }
+            explanations = get_quantity_distribution_explanations()
             return explanations.get(method, "Method description not available.")
         
         # Rung Positioning Method Explanation Callback
@@ -654,160 +711,149 @@ class InteractiveLadderGUI:
             [Input('rung-positioning-dropdown', 'value')]
         )
         def update_rung_positioning_explanation(method):
-            explanations = {
-                'linear': "Linear spacing places rungs at equal percentage intervals from current price for consistent coverage.",
-                'support_resistance': "Support/resistance clustering positions rungs near key technical levels where price often reverses.",
-                'volume_profile': "Volume profile weighted positioning places rungs where high trading volume typically occurs.",
-                'touch_pattern': "Touch pattern analysis positions rungs based on historical price touch frequency patterns.",
-                'adaptive_probability': "Adaptive probability adjusts rung spacing based on real-time market volatility and conditions.",
-                'expected_value': "Expected value optimization positions rungs to maximize the expected profit from each position.",
-                'quantile': "Quantile-based positioning uses statistical quantiles to distribute rungs across price ranges.",
-                'risk_weighted': "Risk-weighted positioning adjusts rung spacing based on the risk profile of each price level.",
-                'exponential': "Exponential spacing places rungs closer to current price with increasing intervals further out.",
-                'logarithmic': "Logarithmic spacing uses logarithmic intervals for natural price distribution patterns.",
-                'fibonacci': "Fibonacci levels positioning places rungs at key Fibonacci retracement and extension levels.",
-                'dynamic_density': "Dynamic density adjusts rung density based on market volatility and trading activity."
-            }
+            explanations = get_rung_positioning_explanations()
             return explanations.get(method, "Method description not available.")
         
-        # Precalculation Status Callback
+        # Cryptocurrency Explanation Callback
         @self.app.callback(
-            Output('precalc-status', 'children'),
+            Output('crypto-explanation', 'children'),
+            [Input('crypto-dropdown', 'value')]
+        )
+        def update_crypto_explanation(crypto_symbol):
+            explanations = get_crypto_explanations()
+            return explanations.get(crypto_symbol, "Cryptocurrency description not available.")
+        
+        # Timeframe Explanation Callback
+        @self.app.callback(
+            Output('timeframe-explanation', 'children'),
+            [Input('timeframe-slider', 'value')]
+        )
+        def update_timeframe_explanation(timeframe_value):
+            explanations = get_timeframe_explanations()
+            return explanations.get(timeframe_value, "Timeframe description not available.")
+        
+        @self.app.callback(
+            [Output('precalc-status', 'children'),
+             Output('precalc-progress-bar', 'style')],
             [Input('precalc-interval', 'n_intervals')]
         )
         def update_precalc_status(n_intervals):
             try:
-                return self.get_precalc_status()
+                status_text = self.get_precalc_status()
+                
+                # Calculate progress bar width
+                if self.precalc_running and self.precalc_total > 0:
+                    progress_pct = (self.precalc_progress / self.precalc_total) * 100
+                    progress_style = {
+                        'width': f'{progress_pct:.1f}%', 'height': '4px', 'backgroundColor': '#28a745',
+                        'borderRadius': '2px', 'transition': 'width 0.3s ease'
+                    }
+                else:
+                    progress_style = {
+                        'width': '0%', 'height': '4px', 'backgroundColor': '#28a745',
+                        'borderRadius': '2px', 'transition': 'width 0.3s ease'
+                    }
+                
+                return status_text, progress_style
             except Exception as e:
                 print(f"Error in precalc status callback: {e}")
-                return "[OK] Status unavailable"
+                return "[OK] Status unavailable", {'width': '0%', 'height': '4px', 'backgroundColor': '#28a745', 'borderRadius': '2px', 'transition': 'width 0.3s ease'}
 
-        # User Request Status Callback (combined to avoid duplicate outputs)
+        # User Request Status Callback
         @self.app.callback(
-            Output('user-request-status', 'children'),
+            [Output('user-request-status', 'children'),
+             Output('user-request-status-container', 'style')],
             [Input('aggression-slider', 'value'),
              Input('rungs-slider', 'value'),
              Input('timeframe-slider', 'value'),
              Input('budget-input', 'value'),
              Input('quantity-distribution-dropdown', 'value'),
              Input('crypto-dropdown', 'value'),
-             Input('rung-positioning-dropdown', 'value'),
-             Input('user-request-status', 'style')]
+             Input('rung-positioning-dropdown', 'value')]
         )
-        def update_user_request_status_text(*inputs):
+        def update_user_request_status(*inputs):
             try:
-                # Use callback context to determine which input triggered the callback
-                ctx = callback_context
-                if not ctx.triggered:
-                    return "[OK] Ready"
+                # Show processing status when any parameter changes
+                status_text = "🔄 Calculating..."
+                container_style = {
+                    'padding': '8px', 'backgroundColor': '#2d2d2d', 'borderRadius': '6px',
+                    'border': '1px solid #444444', 'marginBottom': '10px',
+                    'display': 'block', 'animation': 'pulse 1s infinite'
+                }
                 
-                trigger_id = ctx.triggered[0]['prop_id']
+                return status_text, container_style
                 
-                # Check if the trigger was from style changes
-                if 'user-request-status.style' in trigger_id:
-                    # Get the style input (last input)
-                    style = inputs[-1]
-                    if style and style.get('display') == 'none':
-                        return "[OK] Ready"
-                    return dash.no_update
-                else:
-                    # Show processing status when any parameter changes
-                    # Check if any of the parameter inputs (first 7) have values
-                    if any(inputs[:7]):
-                        return "[PROCESSING] Processing your request..."
-                    return "[OK] Ready"
-                    
             except Exception as e:
                 print(f"Error in user request status callback: {e}")
-                return "[OK] Ready"
+                return "[OK] Ready", {'display': 'none'}
 
-        # User Request Status Visibility Callback (combined to avoid duplicate outputs)
+        # Hide user request status when calculations complete
         @self.app.callback(
-            Output('user-request-status', 'style'),
-            [Input('ladder-configuration-chart', 'figure'),
-             Input('touch-probability-curves', 'figure'),
-             Input('rung-touch-probabilities', 'figure'),
-             Input('historical-touch-frequency', 'figure'),
-             Input('profit-distribution', 'figure'),
-             Input('risk-return-profile', 'figure'),
-             Input('touch-vs-time', 'figure'),
-             Input('allocation-distribution', 'figure'),
-             Input('fit-quality-dashboard', 'figure'),
-             Input('calculation-cache', 'data')]
+            Output('user-request-status-container', 'style', allow_duplicate=True),
+            [Input('calculation-cache', 'data')],
+            prevent_initial_call=True
         )
-        def update_user_request_status_visibility(*inputs):
-            # Use callback context to determine which input triggered the callback
-            ctx = callback_context
-            if not ctx.triggered:
-                return {'display': 'none'}
+        def hide_user_request_status(cache_data):
+            """Hide user request status when calculations complete"""
+            return {'display': 'none'}
 
-            # Check if the trigger was from calculation-cache (completion)
-            trigger_id = ctx.triggered[0]['prop_id']
-            if 'calculation-cache' in trigger_id:
-                # Hide status when cache is updated (calculation complete)
-                return {'display': 'none'}
-            else:
-                # Show processing status when figures are being updated (indicates calculation in progress)
-                return {'color': '#ffc107', 'fontSize': '12px', 'textAlign': 'right',
-                       'padding': '5px', 'backgroundColor': '#2d2d2d', 'borderRadius': '4px',
-                       'display': 'block', 'animation': 'pulse 1s infinite'}
-
-        # Async Results Checker - Update UI when async calculations complete
+        # Smart Recommendations Callback
         @self.app.callback(
-            [Output('ladder-configuration-chart', 'figure'),
-             Output('touch-probability-curves', 'figure'),
-             Output('rung-touch-probabilities', 'figure'),
-             Output('historical-touch-frequency', 'figure'),
-             Output('profit-distribution', 'figure'),
-             Output('risk-return-profile', 'figure'),
-             Output('touch-vs-time', 'figure'),
-             Output('allocation-distribution', 'figure'),
-             Output('fit-quality-dashboard', 'figure'),
-             Output('total-profit-kpi', 'children'),
-             Output('monthly-fills-kpi', 'children'),
-             Output('capital-efficiency-kpi', 'children'),
-             Output('timeframe-kpi', 'children'),
-             Output('buy-orders-table', 'children'),
-             Output('sell-orders-table', 'children'),
-             Output('calculation-cache', 'data')],
-            [Input('interval-component', 'n_intervals')],
-            [State('calculation-cache', 'data')]
+            Output('smart-recommendations', 'children'),
+            [Input('aggression-slider', 'value'),
+             Input('rungs-slider', 'value'),
+             Input('timeframe-slider', 'value'),
+             Input('budget-input', 'value'),
+             Input('quantity-distribution-dropdown', 'value'),
+             Input('crypto-dropdown', 'value'),
+             Input('rung-positioning-dropdown', 'value')]
         )
-        def check_async_results(n_intervals, cache_data):
-            """Check for completed async calculations and update UI"""
+        def update_smart_recommendations(aggression, rungs, timeframe, budget, quantity_dist, crypto, positioning):
+            """Generate smart recommendations based on current settings"""
             try:
-                # Check if any futures are complete
-                completed_futures = []
-                for calc_id, future in self.chart_futures.items():
-                    if future.done():
-                        completed_futures.append((calc_id, future))
-
-                # Process completed futures
-                for calc_id, future in completed_futures:
-                    try:
-                        result = future.result()
-                        if result is not None:
-                            # Update the cache and UI
-                            figures, kpis, buy_table, sell_table, new_cache_data = result
-                            # Remove from futures
-                            del self.chart_futures[calc_id]
-
-                            # Update cache with the new data
-                            cache_data = new_cache_data
-
-                            # Return the results
-                            return (*figures, *kpis.values(), buy_table, sell_table, cache_data)
-
-                    except Exception as e:
-                        print(f"Error processing async result: {e}")
-                        del self.chart_futures[calc_id]
-
-                # No updates available
-                return dash.no_update
-
+                recommendations = generate_smart_recommendations(
+                    aggression, rungs, timeframe, budget, quantity_dist, crypto, positioning
+                )
+                
+                # Generate recommendation cards
+                if not recommendations:
+                    return html.P("✅ Your current settings look optimal! No specific recommendations at this time.", 
+                                 style={'color': '#28a745', 'textAlign': 'center', 'fontWeight': 'bold'})
+                
+                cards = []
+                for i, rec in enumerate(recommendations[:3]):  # Limit to 3 recommendations
+                    color_map = {
+                        'success': '#28a745',
+                        'warning': '#ffc107', 
+                        'info': '#17a2b8',
+                        'error': '#dc3545'
+                    }
+                    color = color_map.get(rec['type'], '#6c757d')
+                    
+                    card = html.Div([
+                        html.Div([
+                            html.Strong(rec['title'], style={'color': color, 'fontSize': '14px'}),
+                            html.Br(),
+                            html.Span(rec['message'], style={'color': '#ffffff', 'fontSize': '12px'}),
+                            html.Br(),
+                            html.Span(f"💡 {rec['suggestion']}", style={'color': color, 'fontSize': '11px', 'fontStyle': 'italic'})
+                        ], style={
+                            'padding': '8px',
+                            'backgroundColor': '#1a1a1a',
+                            'borderRadius': '4px',
+                            'border': f'1px solid {color}',
+                            'marginBottom': '8px'
+                        })
+                    ])
+                    cards.append(card)
+                
+                return cards
+                
             except Exception as e:
-                print(f"Error checking async results: {e}")
-                return dash.no_update
+                print(f"Error generating smart recommendations: {e}")
+                return html.P("Unable to generate recommendations at this time.", 
+                           style={'color': '#6c757d', 'textAlign': 'center'})
+
     
     def get_sorted_quantity_options(self):
         """Get quantity distribution options sorted by usage frequency"""
@@ -847,7 +893,8 @@ class InteractiveLadderGUI:
         
         # Default options with usage counts
         options = [
-            {'label': 'Linear Spacing (Recommended)', 'value': 'linear'},
+            {'label': 'Dynamic Density (Recommended)', 'value': 'dynamic_density'},
+            {'label': 'Linear Spacing', 'value': 'linear'},
             {'label': 'Support/Resistance Clustering', 'value': 'support_resistance'},
             {'label': 'Volume Profile Weighted', 'value': 'volume_profile'},
             {'label': 'Touch Pattern Analysis', 'value': 'touch_pattern'},
@@ -857,15 +904,14 @@ class InteractiveLadderGUI:
             {'label': 'Risk-Weighted', 'value': 'risk_weighted'},
             {'label': 'Exponential Spacing', 'value': 'exponential'},
             {'label': 'Logarithmic Spacing', 'value': 'logarithmic'},
-            {'label': 'Fibonacci Levels', 'value': 'fibonacci'},
-            {'label': 'Dynamic Density', 'value': 'dynamic_density'}
+            {'label': 'Fibonacci Levels', 'value': 'fibonacci'}
         ]
         
         # Sort by usage frequency (descending)
         def sort_key(option):
             usage_count = method_usage.get(option['value'], 0)
             # Put recommended first, then by usage
-            if option['value'] == 'linear':
+            if option['value'] == 'dynamic_density':
                 return (1, -usage_count)  # Recommended first
             return (0, -usage_count)  # Then by usage
         
@@ -1119,80 +1165,21 @@ class InteractiveLadderGUI:
             self.resume_precalculation()
             return self._get_error_response(cache_data)
 
-    def update_all_visualizations_async(self, aggression_level, num_rungs, timeframe_hours,
-                                       budget, quantity_distribution, crypto_symbol, rung_positioning,
-                                       trading_fee, min_notional, cache_data):
-        """Async version of update_all_visualizations with smart recalculation"""
+    def update_all_visualizations(self, aggression_level, num_rungs, timeframe_hours,
+                                budget, quantity_distribution, crypto_symbol, rung_positioning,
+                                trading_fee, min_notional, cache_data):
+        """Synchronous version of update_all_visualizations with caching"""
         try:
             # Pause precalculation for user priority
             self.pause_precalculation()
 
-            # Advanced debouncing with better user feedback
+            # Simple debouncing
             current_time = time.time() * 1000
-
-            # If there's a pending update, check if we should cancel it
-            if self.pending_update and current_time - self.pending_update['timestamp'] > self.update_debounce_ms * 2:
-                # Cancel old pending update if it's too old
-                self.cancel_chart_generation()
-                self.pending_update = None
-
-            # Check if we should debounce this update
             if current_time - self.last_update_time < self.update_debounce_ms:
-                # Store this as a pending update
-                self.pending_update = {
-                    'timestamp': current_time,
-                    'params': (aggression_level, num_rungs, timeframe_hours, budget,
-                              quantity_distribution, crypto_symbol, rung_positioning,
-                              trading_fee, min_notional, cache_data)
-                }
                 self.resume_precalculation()
                 return dash.no_update
-
-            # Clear any pending updates since we're processing this one
-            self.pending_update = None
+            
             self.last_update_time = current_time
-
-            # Smart recalculation: detect what changed
-            new_settings = {
-                'aggression_level': aggression_level,
-                'num_rungs': num_rungs,
-                'timeframe_hours': timeframe_hours,
-                'budget': budget,
-                'quantity_distribution': quantity_distribution,
-                'crypto_symbol': crypto_symbol,
-                'rung_positioning': rung_positioning,
-                'trading_fee': trading_fee,
-                'min_notional': min_notional
-            }
-
-            changed_settings = self.detect_setting_changes(new_settings)
-            affected_calculations = self.get_affected_calculations(changed_settings)
-
-            print(f"Settings changed: {changed_settings}")
-            print(f"Affected calculations: {affected_calculations}")
-
-            # If nothing changed, return cached results
-            if not changed_settings:
-                print("No settings changed, using cached results")
-                cached_charts = self.get_cached_charts(**new_settings)
-                if cached_charts:
-                    return self._return_cached_charts(cached_charts, trading_fee, min_notional, cache_data)
-                else:
-                    self.resume_precalculation()
-                    return dash.no_update
-
-            # Cancel any existing chart generation tasks
-            self.cancel_chart_generation()
-
-            # Generate new calculation ID for this request
-            self.current_calculation_id += 1
-            calculation_id = self.current_calculation_id
-
-            # Check for partial cached results first
-            cached_charts = self.get_cached_charts(**new_settings)
-            if cached_charts and self._can_use_cached_results(changed_settings, cached_charts):
-                print("Using partial cached results for visualization update")
-                return self._return_cached_charts(cached_charts, trading_fee, min_notional, cache_data)
 
             # Validate inputs
             if not all([aggression_level, num_rungs, timeframe_hours, budget]):
@@ -1206,89 +1193,77 @@ class InteractiveLadderGUI:
                 quantity_distribution, crypto_symbol, rung_positioning
             )
 
-            # If not precalculated, calculate now (but do it async)
+            # If not precalculated, calculate now
             if ladder_data is None:
-                print(f"Calculating async: {crypto_symbol} {aggression_level} {num_rungs} {timeframe_hours}h {budget} {quantity_distribution} {rung_positioning}")
-
-                # Submit calculation to thread pool
-                future = self.chart_executor.submit(
-                    self._calculate_ladder_async,
-                    calculation_id, aggression_level, num_rungs, timeframe_hours,
-                    budget, quantity_distribution, crypto_symbol, rung_positioning,
-                    trading_fee, min_notional
+                print(f"Calculating: {crypto_symbol} {aggression_level} {num_rungs} {timeframe_hours}h {budget} {quantity_distribution} {rung_positioning}")
+                ladder_data = self.calculator.calculate_ladder_configuration(
+                    aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution,
+                    crypto_symbol, rung_positioning
                 )
-                self.chart_futures[calculation_id] = future
 
-                # Return loading state immediately
-                self.resume_precalculation()
-                return self._get_loading_response(cache_data)
-
-            # If we have precalculated data, generate charts async with smart recalculation
-            print(f"Using precalculated result, generating charts: {crypto_symbol} {aggression_level} {num_rungs} {timeframe_hours}h {budget} {quantity_distribution} {rung_positioning}")
-
-            # Submit chart generation to thread pool with smart recalculation
-            future = self.chart_executor.submit(
-                self._generate_charts_async_smart,
-                calculation_id, ladder_data, timeframe_hours, trading_fee, min_notional,
-                changed_settings, affected_calculations, aggression_level, num_rungs, budget,
-                quantity_distribution, crypto_symbol, rung_positioning
-            )
-            self.chart_futures[calculation_id] = future
-
-            # Track usage
+                # Save to persistent cache for future use
+                cache_key = self._generate_cache_key({
+                    'aggression_level': aggression_level,
+                    'num_rungs': num_rungs,
+                    'timeframe_hours': timeframe_hours,
+                    'budget': budget,
+                    'quantity_distribution': quantity_distribution,
+                    'crypto_symbol': crypto_symbol,
+                    'rung_positioning': rung_positioning
+                })
+                self.precalc_cache[cache_key] = ladder_data
+                self.save_persistent_cache()
+            else:
+                print(f"Using precalculated result: {crypto_symbol} {aggression_level} {num_rungs} {timeframe_hours}h {budget} {quantity_distribution} {rung_positioning}")
+            
+            # Track usage of this configuration
             self.usage_tracker.track_usage(
                 aggression_level, num_rungs, timeframe_hours, budget,
                 quantity_distribution, crypto_symbol, rung_positioning
             )
+            
+            # Validate ladder data
+            if not ladder_data or not isinstance(ladder_data, dict) or 'buy_depths' not in ladder_data:
+                print("Error: Invalid ladder data returned")
+                return self._get_error_response(cache_data)
+            
+            # Update current timeframe for data interval management
+            self.current_timeframe_hours = timeframe_hours
 
-            # Resume precalculation
+            # Generate all visualizations
+            figures = self.visualizer.create_all_charts(ladder_data, timeframe_hours)
+            
+            # Calculate KPIs
+            kpis = self.calculator.calculate_kpis(ladder_data)
+            
+            # Create order tables
+            buy_table = self._create_buy_orders_table(ladder_data, trading_fee, min_notional)
+            sell_table = self._create_sell_orders_table(ladder_data, trading_fee, min_notional)
+            
+            # Update cache
+            cache_data = {
+                'timestamp': current_time,
+                'ladder_data': ladder_data,
+                'kpis': kpis,
+                'trading_fee': trading_fee,
+                'min_notional': min_notional
+            }
+            
+            # Resume precalculation after user request
             self.resume_precalculation()
 
-            # Return loading state
-            return self._get_loading_response(cache_data)
+            # Return all results
+            return (*figures, *kpis.values(), buy_table, sell_table, cache_data)
 
         except Exception as e:
-            print(f"Error in async visualization update: {e}")
+            print(f"Error in visualization update: {e}")
             import traceback
             traceback.print_exc()
+            # Resume precalculation even on error
             self.resume_precalculation()
             return self._get_error_response(cache_data)
 
-    def _can_use_cached_results(self, changed_settings, cached_charts):
-        """Check if cached results can be used for the current changes"""
-        # Simple heuristic: if only low-cost settings changed, cached results might be usable
-        low_cost_settings = {'trading_fee', 'min_notional', 'budget'}
 
-        # If only low-cost settings changed, we might be able to reuse cached charts
-        if set(changed_settings).issubset(low_cost_settings):
-            # Check if cached charts are recent enough (within 5 minutes)
-            cache_age = time.time() * 1000 - cached_charts.get('timestamp', 0)
-            return cache_age < 5 * 60 * 1000  # 5 minutes
-
-        return False
-
-    def cancel_chart_generation(self):
-        """Cancel any ongoing chart generation tasks"""
-        # Cancel futures (this is a best-effort cancellation)
-        for future in self.chart_futures.values():
-            if not future.done():
-                future.cancel()
-        self.chart_futures.clear()
-
-    def get_cached_charts(self, aggression_level, num_rungs, timeframe_hours, budget,
-                         quantity_distribution, crypto_symbol, rung_positioning):
-        """Get cached charts if available"""
-        cache_key = self._generate_chart_cache_key({
-            'aggression_level': aggression_level,
-            'num_rungs': num_rungs,
-            'timeframe_hours': timeframe_hours,
-            'budget': budget,
-            'quantity_distribution': quantity_distribution,
-            'crypto_symbol': crypto_symbol,
-            'rung_positioning': rung_positioning
-        })
-
-        return self.chart_cache.get(cache_key)
 
     def cache_charts(self, aggression_level, num_rungs, timeframe_hours, budget,
                     quantity_distribution, crypto_symbol, rung_positioning, figures, kpis):
@@ -1339,6 +1314,167 @@ class InteractiveLadderGUI:
         for key in keys_to_remove:
             del self.chart_cache[key]
 
+    def _can_use_cached_results(self, cache_key):
+        """Check if cached results can be used for the current configuration"""
+        if cache_key in self.chart_cache:
+            cached_data = self.chart_cache[cache_key]
+            # Check if cache is recent (within 1 hour)
+            current_time = time.time() * 1000
+            cache_age = current_time - cached_data['timestamp']
+            return cache_age < (60 * 60 * 1000)  # 1 hour
+        return False
+
+    def _get_cached_charts(self, cache_key):
+        """Get cached charts if available"""
+        if cache_key in self.chart_cache:
+            cached_data = self.chart_cache[cache_key]
+            return cached_data['figures'], cached_data['kpis']
+        return None, None
+
+    def _cache_charts(self, cache_key, figures, kpis):
+        """Cache charts with timestamp"""
+        self.chart_cache[cache_key] = {
+            'figures': figures,
+            'kpis': kpis,
+            'timestamp': time.time() * 1000
+        }
+        
+        # Limit cache size to prevent memory issues
+        if len(self.chart_cache) > 50:
+            # Remove oldest entries
+            sorted_items = sorted(self.chart_cache.items(), key=lambda x: x[1]['timestamp'])
+            for key, _ in sorted_items[:10]:  # Remove 10 oldest entries
+                del self.chart_cache[key]
+
+    def _generate_charts_lazy(self, ladder_data, timeframe_hours, trading_fee, min_notional,
+                              aggression_level, num_rungs, budget, quantity_distribution, 
+                              crypto_symbol, rung_positioning):
+        """Generate charts with lazy loading and smart caching"""
+        try:
+            # Generate cache key for this configuration
+            cache_key = self._generate_chart_cache_key({
+                'aggression_level': aggression_level,
+                'num_rungs': num_rungs,
+                'timeframe_hours': timeframe_hours,
+                'budget': budget,
+                'quantity_distribution': quantity_distribution,
+                'crypto_symbol': crypto_symbol,
+                'rung_positioning': rung_positioning
+            })
+
+            # Check if we can use cached results
+            if self._can_use_cached_results(cache_key):
+                print("Using cached charts")
+                cached_figures, cached_kpis = self._get_cached_charts(cache_key)
+                if cached_figures and cached_kpis:
+                    # Create order tables (these are always fresh)
+                    buy_table = self._create_buy_orders_table(ladder_data, trading_fee, min_notional)
+                    sell_table = self._create_sell_orders_table(ladder_data, trading_fee, min_notional)
+                    
+                    # Update cache
+                    cache_data = {
+                        'timestamp': time.time() * 1000,
+                        'ladder_data': ladder_data,
+                        'kpis': cached_kpis,
+                        'trading_fee': trading_fee,
+                        'min_notional': min_notional,
+                        'calculation_id': self.current_calculation_id
+                    }
+                    
+                    return (*cached_figures, *cached_kpis.values(), buy_table, sell_table, cache_data)
+
+            # Generate charts with priority-based loading
+            print("Generating charts with lazy loading...")
+            
+            # Phase 1: Critical charts (load immediately)
+            critical_charts = [
+                'ladder-configuration-chart',
+                'touch-probability-curves',
+                'rung-touch-probabilities'
+            ]
+            
+            figures = {}
+            for chart_name in critical_charts:
+                try:
+                    fig = self._generate_single_chart(chart_name, ladder_data, timeframe_hours)
+                    figures[chart_name] = fig
+                except Exception as e:
+                    print(f"Error generating {chart_name}: {e}")
+                    figures[chart_name] = self._create_empty_chart(chart_name, "Error loading data")
+
+            # Phase 2: Secondary charts (load after critical)
+            secondary_charts = [
+                'historical-touch-frequency',
+                'profit-distribution',
+                'risk-return-profile'
+            ]
+            
+            for chart_name in secondary_charts:
+                try:
+                    fig = self._generate_single_chart(chart_name, ladder_data, timeframe_hours)
+                    figures[chart_name] = fig
+                except Exception as e:
+                    print(f"Error generating {chart_name}: {e}")
+                    figures[chart_name] = self._create_empty_chart(chart_name, "Error loading data")
+
+            # Phase 3: Tertiary charts (load last)
+            tertiary_charts = [
+                'touch-vs-time',
+                'allocation-distribution',
+                'fit-quality-dashboard'
+            ]
+            
+            for chart_name in tertiary_charts:
+                try:
+                    fig = self._generate_single_chart(chart_name, ladder_data, timeframe_hours)
+                    figures[chart_name] = fig
+                except Exception as e:
+                    print(f"Error generating {chart_name}: {e}")
+                    figures[chart_name] = self._create_empty_chart(chart_name, "Error loading data")
+
+            # Calculate KPIs
+            kpis = self.calculator.calculate_kpis(ladder_data)
+            
+            # Create order tables
+            buy_table = self._create_buy_orders_table(ladder_data, trading_fee, min_notional)
+            sell_table = self._create_sell_orders_table(ladder_data, trading_fee, min_notional)
+
+            # Convert figures dict to ordered tuple for return
+            ordered_figures = []
+            chart_order = [
+                'ladder-configuration-chart',
+                'touch-probability-curves',
+                'rung-touch-probabilities',
+                'historical-touch-frequency',
+                'profit-distribution',
+                'risk-return-profile',
+                'touch-vs-time',
+                'allocation-distribution',
+                'fit-quality-dashboard'
+            ]
+
+            for chart_name in chart_order:
+                ordered_figures.append(figures.get(chart_name, self._create_empty_chart(chart_name, "Error loading data")))
+
+            # Cache the results
+            self._cache_charts(cache_key, tuple(ordered_figures), kpis)
+
+            # Update cache
+            cache_data = {
+                'timestamp': time.time() * 1000,
+                'ladder_data': ladder_data,
+                'kpis': kpis,
+                'trading_fee': trading_fee,
+                'min_notional': min_notional,
+                'calculation_id': self.current_calculation_id
+            }
+
+            return (*ordered_figures, *kpis.values(), buy_table, sell_table, cache_data)
+
+        except Exception as e:
+            print(f"Error in lazy chart generation: {e}")
+            return self._get_error_response(cache_data)
+
         print(f"Cleaned up {len(keys_to_remove)} old chart cache entries")
 
     def _return_cached_charts(self, cached_data, trading_fee, min_notional, cache_data):
@@ -1357,144 +1493,6 @@ class InteractiveLadderGUI:
         except Exception as e:
             print(f"Error returning cached charts: {e}")
             return self._get_error_response(cache_data)
-
-    def _calculate_ladder_async(self, calculation_id, aggression_level, num_rungs, timeframe_hours,
-                               budget, quantity_distribution, crypto_symbol, rung_positioning,
-                               trading_fee, min_notional):
-        """Calculate ladder configuration in background thread"""
-        try:
-            # Check if this calculation was cancelled
-            if calculation_id != self.current_calculation_id:
-                return None
-
-            ladder_data = self.calculator.calculate_ladder_configuration(
-                aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution,
-                crypto_symbol, rung_positioning
-            )
-
-            # Save to persistent cache for future use
-            cache_key = self._generate_cache_key({
-                'aggression_level': aggression_level,
-                'num_rungs': num_rungs,
-                'timeframe_hours': timeframe_hours,
-                'budget': budget,
-                'quantity_distribution': quantity_distribution,
-                'crypto_symbol': crypto_symbol,
-                'rung_positioning': rung_positioning
-            })
-            self.precalc_cache[cache_key] = ladder_data
-            self.save_persistent_cache()
-
-            return ladder_data, trading_fee, min_notional
-
-        except Exception as e:
-            print(f"Error in async ladder calculation: {e}")
-            return None
-
-    def _generate_charts_async_smart(self, calculation_id, ladder_data, timeframe_hours, trading_fee, min_notional,
-                                   changed_settings, affected_calculations, aggression_level, num_rungs, budget,
-                                   quantity_distribution, crypto_symbol, rung_positioning):
-        """Generate charts with smart recalculation based on what changed"""
-        try:
-            # Check if this calculation was cancelled
-            if calculation_id != self.current_calculation_id:
-                return None
-
-            # Validate ladder data
-            if not ladder_data or not isinstance(ladder_data, dict) or 'buy_depths' not in ladder_data:
-                print("Error: Invalid ladder data returned")
-                return None
-
-            # Update current timeframe for data interval management
-            self.current_timeframe_hours = timeframe_hours
-
-            # Determine what needs to be recalculated
-            needs_full_recalc = any(calc in affected_calculations for calc in ['ladder_configuration', 'all_charts'])
-            needs_kpi_recalc = 'kpis' in affected_calculations or 'allocations' in affected_calculations
-            needs_table_recalc = any(calc in affected_calculations for calc in ['order_tables', 'order_calculations', 'order_filtering'])
-
-            # Generate all visualizations with selective recalculation
-            figures = self.visualizer.create_all_charts(ladder_data, timeframe_hours)
-
-            # Calculate KPIs only if needed
-            if needs_kpi_recalc:
-                print("Recalculating KPIs due to setting changes")
-                kpis = self.calculator.calculate_kpis(ladder_data)
-
-                # Cache the KPIs for future use
-                kpi_params = {
-                    'budget': budget,
-                    'quantity_distribution': quantity_distribution,
-                    'crypto_symbol': crypto_symbol,
-                    'timeframe_hours': timeframe_hours
-                }
-                self.cache_component('kpis', kpi_params, kpis)
-            else:
-                # Try to get KPIs from component cache first
-                kpi_params = {
-                    'budget': budget,
-                    'quantity_distribution': quantity_distribution,
-                    'crypto_symbol': crypto_symbol,
-                    'timeframe_hours': timeframe_hours
-                }
-                cached_kpis = self.get_cached_component('kpis', kpi_params)
-                if cached_kpis:
-                    print("Using cached KPIs")
-                    kpis = cached_kpis['result']
-                else:
-                    # Fallback to calculation
-                    print("Calculating KPIs (no cache available)")
-                    kpis = self.calculator.calculate_kpis(ladder_data)
-
-            # Create order tables only if needed
-            if needs_table_recalc:
-                print("Recalculating order tables due to setting changes")
-                buy_table = self._create_buy_orders_table(ladder_data, trading_fee, min_notional)
-                sell_table = self._create_sell_orders_table(ladder_data, trading_fee, min_notional)
-
-                # Cache the tables for future use
-                table_params = {
-                    'trading_fee': trading_fee,
-                    'min_notional': min_notional,
-                    'crypto_symbol': crypto_symbol
-                }
-                self.cache_component('order_tables', table_params, {
-                    'buy_table': buy_table,
-                    'sell_table': sell_table
-                })
-            else:
-                # Try to get tables from component cache first
-                table_params = {
-                    'trading_fee': trading_fee,
-                    'min_notional': min_notional,
-                    'crypto_symbol': crypto_symbol
-                }
-                cached_tables = self.get_cached_component('order_tables', table_params)
-                if cached_tables:
-                    print("Using cached order tables")
-                    buy_table = cached_tables['result']['buy_table']
-                    sell_table = cached_tables['result']['sell_table']
-                else:
-                    # Fallback to calculation
-                    print("Calculating order tables (no cache available)")
-                    buy_table = self._create_buy_orders_table(ladder_data, trading_fee, min_notional)
-                    sell_table = self._create_sell_orders_table(ladder_data, trading_fee, min_notional)
-
-            # Update cache
-            cache_data = {
-                'timestamp': time.time() * 1000,
-                'ladder_data': ladder_data,
-                'kpis': kpis,
-                'trading_fee': trading_fee,
-                'min_notional': min_notional,
-                'calculation_id': calculation_id
-            }
-
-            return (*figures, *kpis.values(), buy_table, sell_table, cache_data)
-
-        except Exception as e:
-            print(f"Error in smart async chart generation: {e}")
-            return None
 
     def _get_cached_kpis(self, ladder_data):
         """Get KPIs from cache or return default values"""
@@ -1515,196 +1513,62 @@ class InteractiveLadderGUI:
                 'timeframe': "N/A"
             }
 
-    def _generate_charts_async(self, calculation_id, ladder_data, timeframe_hours, trading_fee, min_notional,
-                              aggression_level, num_rungs, budget, quantity_distribution, crypto_symbol, rung_positioning):
-        """Generate all charts in background thread with progressive loading"""
+    def _get_cached_kpis(self, ladder_data):
+        """Get KPIs from cache or return default values"""
         try:
-            # Check if this calculation was cancelled
-            if calculation_id != self.current_calculation_id:
-                return None
-
-            # Validate ladder data
-            if not ladder_data or not isinstance(ladder_data, dict) or 'buy_depths' not in ladder_data:
-                print("Error: Invalid ladder data returned")
-                return None
-
-            # Update current timeframe for data interval management
-            self.current_timeframe_hours = timeframe_hours
-
-            # Generate charts progressively by priority
-            all_figures = {}
-            kpis = None
-            buy_table = None
-            sell_table = None
-
-            # Phase 1: Critical charts (priority 1) - Load immediately
-            print("Generating critical charts (Phase 1)...")
-            critical_charts = [
-                'ladder-configuration-chart',
-                'touch-probability-curves',
-                'rung-touch-probabilities'
-            ]
-
-            for chart_name in critical_charts:
-                if calculation_id != self.current_calculation_id:
-                    return None  # Check for cancellation
-
-                try:
-                    fig = self._generate_single_chart(chart_name, ladder_data, timeframe_hours)
-                    all_figures[chart_name] = fig
-                    print(f"Generated {chart_name}")
-                except Exception as e:
-                    print(f"Error generating {chart_name}: {e}")
-                    all_figures[chart_name] = self._create_empty_chart(chart_name, "Error loading data")
-
-            # Phase 2: Secondary charts (priority 2) - Load after critical
-            print("Generating secondary charts (Phase 2)...")
-            secondary_charts = [
-                'historical-touch-frequency',
-                'profit-distribution',
-                'risk-return-profile'
-            ]
-
-            for chart_name in secondary_charts:
-                if calculation_id != self.current_calculation_id:
-                    return None  # Check for cancellation
-
-                try:
-                    fig = self._generate_single_chart(chart_name, ladder_data, timeframe_hours)
-                    all_figures[chart_name] = fig
-                    print(f"Generated {chart_name}")
-                except Exception as e:
-                    print(f"Error generating {chart_name}: {e}")
-                    all_figures[chart_name] = self._create_empty_chart(chart_name, "Error loading data")
-
-            # Phase 3: Tertiary charts (priority 3) - Load last
-            print("Generating tertiary charts (Phase 3)...")
-            tertiary_charts = [
-                'touch-vs-time',
-                'allocation-distribution',
-                'fit-quality-dashboard'
-            ]
-
-            for chart_name in tertiary_charts:
-                if calculation_id != self.current_calculation_id:
-                    return None  # Check for cancellation
-
-                try:
-                    fig = self._generate_single_chart(chart_name, ladder_data, timeframe_hours)
-                    all_figures[chart_name] = fig
-                    print(f"Generated {chart_name}")
-                except Exception as e:
-                    print(f"Error generating {chart_name}: {e}")
-                    all_figures[chart_name] = self._create_empty_chart(chart_name, "Error loading data")
-
-            # Calculate KPIs and tables (do this once at the end)
-            print("Calculating KPIs and tables...")
-            kpis = self.calculator.calculate_kpis(ladder_data)
-            buy_table = self._create_buy_orders_table(ladder_data, trading_fee, min_notional)
-            sell_table = self._create_sell_orders_table(ladder_data, trading_fee, min_notional)
-
-            # Convert figures dict to ordered tuple for return
-            ordered_figures = []
-            chart_order = [
-                'ladder-configuration-chart',
-                'touch-probability-curves',
-                'rung-touch-probabilities',
-                'historical-touch-frequency',
-                'profit-distribution',
-                'risk-return-profile',
-                'touch-vs-time',
-                'allocation-distribution',
-                'fit-quality-dashboard'
-            ]
-
-            for chart_name in chart_order:
-                ordered_figures.append(all_figures.get(chart_name, self._create_empty_chart(chart_name, "Error loading data")))
-
-            # Cache the charts for future use
-            self.cache_charts(
-                aggression_level, num_rungs, timeframe_hours, budget,
-                quantity_distribution, crypto_symbol, rung_positioning,
-                tuple(ordered_figures), kpis
-            )
-
-            # Update cache
-            cache_data = {
-                'timestamp': time.time() * 1000,
-                'ladder_data': ladder_data,
-                'kpis': kpis,
-                'trading_fee': trading_fee,
-                'min_notional': min_notional,
-                'calculation_id': calculation_id
+            # For now, return default values - could be enhanced to cache KPIs separately
+            return {
+                'total_profit': "Cached",
+                'monthly_fills': "Cached",
+                'capital_efficiency': "Cached",
+                'timeframe': "Cached"
+            }
+        except Exception as e:
+            print(f"Error getting cached KPIs: {e}")
+            return {
+                'total_profit': "N/A",
+                'monthly_fills': "N/A",
+                'capital_efficiency': "N/A",
+                'timeframe': "N/A"
             }
 
-            return (*ordered_figures, *kpis.values(), buy_table, sell_table, cache_data)
-
-        except Exception as e:
-            print(f"Error in async chart generation: {e}")
-            return None
-
-    def _generate_single_chart(self, chart_name, ladder_data, timeframe_hours):
-        """Generate a single chart by name"""
+    def _get_cached_kpis(self, ladder_data):
+        """Get KPIs from cache or return default values"""
         try:
-            if chart_name == 'ladder-configuration-chart':
-                return self.visualizer.create_ladder_configuration_chart(ladder_data, self._get_timeframe_display(timeframe_hours))
-            elif chart_name == 'touch-probability-curves':
-                return self.visualizer.create_touch_probability_curves(ladder_data, self._get_timeframe_display(timeframe_hours))
-            elif chart_name == 'rung-touch-probabilities':
-                return self.visualizer.create_rung_touch_probabilities_chart(ladder_data, self._get_timeframe_display(timeframe_hours))
-            elif chart_name == 'historical-touch-frequency':
-                return self.visualizer.create_historical_touch_frequency_chart(ladder_data, timeframe_hours, self._get_timeframe_display(timeframe_hours))
-            elif chart_name == 'profit-distribution':
-                return self.visualizer.create_profit_distribution_chart(ladder_data, self._get_timeframe_display(timeframe_hours))
-            elif chart_name == 'risk-return-profile':
-                return self.visualizer.create_risk_return_profile_chart(ladder_data, self._get_timeframe_display(timeframe_hours))
-            elif chart_name == 'touch-vs-time':
-                return self.visualizer.create_touch_vs_time_chart(ladder_data, timeframe_hours, self._get_timeframe_display(timeframe_hours))
-            elif chart_name == 'allocation-distribution':
-                return self.visualizer.create_allocation_distribution_chart(ladder_data, self._get_timeframe_display(timeframe_hours))
-            elif chart_name == 'fit-quality-dashboard':
-                return self.visualizer.create_fit_quality_dashboard(ladder_data, self._get_timeframe_display(timeframe_hours))
-            else:
-                return self._create_empty_chart(chart_name, "Unknown chart type")
-
+            # For now, return default values - could be enhanced to cache KPIs separately
+            return {
+                'total_profit': "Cached",
+                'monthly_fills': "Cached",
+                'capital_efficiency': "Cached",
+                'timeframe': "Cached"
+            }
         except Exception as e:
-            print(f"Error generating single chart {chart_name}: {e}")
-            return self._create_empty_chart(chart_name, f"Error: {str(e)}")
+            print(f"Error getting cached KPIs: {e}")
+            return {
+                'total_profit': "N/A",
+                'monthly_fills': "N/A",
+                'capital_efficiency': "N/A",
+                'timeframe': "N/A"
+            }
 
-    def _get_timeframe_display(self, timeframe_hours):
-        """Get timeframe display string"""
-        timeframe_map = {24: "1d", 168: "1w", 720: "1m", 4320: "6m", 8760: "1y", 26280: "3y", 43800: "5y", 87600: "max"}
-        return timeframe_map.get(timeframe_hours, f"{timeframe_hours}h")
-
-    def _create_empty_chart(self, title, message):
-        """Create empty chart with error message"""
-        fig = go.Figure()
-        fig.add_annotation(
-            text=message, x=0.5, y=0.5, showarrow=False,
-            font=dict(size=16, color="red")
-        )
-        fig.update_layout(
-            title=title,
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font={'color': '#ffffff'},
-            height=400
-        )
-        return fig
-
-    def _get_loading_response(self, cache_data):
-        """Return loading state for all outputs with better UX"""
-        loading_fig = go.Figure()
-        loading_fig.add_annotation(
-            text="⚡ Loading charts...\nPlease wait", x=0.5, y=0.5, showarrow=False,
-            font=dict(size=14, color="#ffc107")
-        )
-        loading_fig.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font={'color': '#ffffff'},
-            height=400
-        )
+    def _get_cached_kpis(self, ladder_data):
+        """Get KPIs from cache or return default values"""
+        try:
+            # For now, return default values - could be enhanced to cache KPIs separately
+            return {
+                'total_profit': "Cached",
+                'monthly_fills': "Cached",
+                'capital_efficiency': "Cached",
+                'timeframe': "Cached"
+            }
+        except Exception as e:
+            print(f"Error getting cached KPIs: {e}")
+            return {
+                'total_profit': "N/A",
+                'monthly_fills': "N/A",
+                'capital_efficiency': "N/A",
+                'timeframe': "N/A"
+            }
 
         loading_figs = (loading_fig,) * 9
         loading_table = html.Div([
@@ -2013,38 +1877,38 @@ class InteractiveLadderGUI:
         # Default configurations for new users
         default_configs = [
             # Most common defaults
-            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
-            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'linear_increase', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
-            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'equal_notional', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'dynamic_density'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'linear_increase', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'dynamic_density'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'equal_notional', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'dynamic_density'},
             
             # Common variations
-            {'aggression_level': 2, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
-            {'aggression_level': 4, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
-            {'aggression_level': 3, 'num_rungs': 10, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
-            {'aggression_level': 3, 'num_rungs': 30, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 2, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'dynamic_density'},
+            {'aggression_level': 4, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'dynamic_density'},
+            {'aggression_level': 3, 'num_rungs': 10, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'dynamic_density'},
+            {'aggression_level': 3, 'num_rungs': 30, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'dynamic_density'},
             
             # Different timeframes
-            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 168, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
-            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 4320, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 168, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'dynamic_density'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 4320, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'dynamic_density'},
             
             # Different budgets
-            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 500, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
-            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 5000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 500, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'dynamic_density'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 5000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'dynamic_density'},
             
             # Different positioning methods
             {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'exponential'},
             {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'SOLUSDT', 'rung_positioning': 'fibonacci'},
             
             # Bitcoin configurations
-            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'BTCUSDT', 'rung_positioning': 'linear'},
-            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'linear_increase', 'crypto_symbol': 'BTCUSDT', 'rung_positioning': 'linear'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'kelly_optimized', 'crypto_symbol': 'BTCUSDT', 'rung_positioning': 'dynamic_density'},
+            {'aggression_level': 3, 'num_rungs': 20, 'timeframe_hours': 720, 'budget': 1000, 'quantity_distribution': 'linear_increase', 'crypto_symbol': 'BTCUSDT', 'rung_positioning': 'dynamic_density'},
         ]
         
         return default_configs
     
     def _generate_cache_key(self, config):
         """Generate a unique cache key for a configuration"""
-        return self.usage_tracker.generate_cache_key(config)
+        return generate_cache_key(config)
     
     def get_precalculated_result(self, aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution, crypto_symbol, rung_positioning):
         """Get precalculated result if available, otherwise return None"""
@@ -2225,16 +2089,8 @@ class InteractiveLadderGUI:
             self.shutdown()
 
     def shutdown(self):
-        """Clean shutdown of async resources"""
+        """Clean shutdown of resources"""
         try:
-            # Cancel all pending futures
-            self.cancel_chart_generation()
-
-            # Shutdown thread pool
-            if hasattr(self, 'chart_executor'):
-                self.chart_executor.shutdown(wait=True, timeout=5.0)
-                print("Chart executor shutdown complete")
-
             print("GUI shutdown complete")
         except Exception as e:
             print(f"Error during shutdown: {e}")

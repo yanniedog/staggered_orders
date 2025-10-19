@@ -11,6 +11,7 @@ import numpy as np
 from typing import Dict, List, Tuple, Optional
 import warnings
 from utils import format_timeframe
+from gui_charts import ChartFactory
 
 warnings.filterwarnings('ignore')
 
@@ -51,24 +52,47 @@ class VisualizationEngine:
         }
     
     def create_all_charts(self, ladder_data: Dict, timeframe_hours: int) -> Tuple:
-        """Create all visualization charts"""
+        """Create all visualization charts using chart factory"""
         try:
             timeframe_display = format_timeframe(timeframe_hours)
-            charts = (
-                self.create_ladder_configuration_chart(ladder_data, timeframe_display),
-                self.create_touch_probability_curves(ladder_data, timeframe_display),
-                self.create_rung_touch_probabilities_chart(ladder_data, timeframe_display),
-                self.create_historical_touch_frequency_chart(ladder_data, timeframe_hours, timeframe_display),
-                self.create_profit_distribution_chart(ladder_data, timeframe_display),
-                self.create_risk_return_profile_chart(ladder_data, timeframe_display),
-                self.create_touch_vs_time_chart(ladder_data, timeframe_hours, timeframe_display),
-                self.create_allocation_distribution_chart(ladder_data, timeframe_display),
-                self.create_fit_quality_dashboard(ladder_data, timeframe_display)
-            )
-            return charts
+            
+            # Chart types in order
+            chart_types = [
+                'ladder-configuration-chart',
+                'touch-probability-curves',
+                'rung-touch-probabilities',
+                'historical-touch-frequency',
+                'profit-distribution',
+                'risk-return-profile',
+                'touch-vs-time',
+                'allocation-distribution',
+                'fit-quality-dashboard'
+            ]
+            
+            figures = []
+            for chart_type in chart_types:
+                try:
+                    chart = ChartFactory.create_chart(chart_type)
+                    figure = chart.create(ladder_data, timeframe_display)
+                    figures.append(figure)
+                except Exception as e:
+                    print(f"Error creating {chart_type}: {e}")
+                    # Create error chart
+                    chart = ChartFactory.create_chart('ladder-configuration-chart')  # Use any chart for error
+                    figure = chart._create_error_chart(chart_type.replace('-', ' ').title(), str(e))
+                    figures.append(figure)
+            
+            return tuple(figures)
+            
         except Exception as e:
-            print(f"Error creating charts: {e}")
-            return self._create_error_charts()
+            print(f"Error in create_all_charts: {e}")
+            # Return error charts for all
+            error_figures = []
+            for i in range(9):  # 9 charts
+                chart = ChartFactory.create_chart('ladder-configuration-chart')
+                figure = chart._create_error_chart("Chart Error", str(e))
+                error_figures.append(figure)
+            return tuple(error_figures)
     
     def create_ladder_configuration_chart(self, ladder_data: Dict, timeframe_display: str = "") -> go.Figure:
         """Create interactive ladder configuration scatter plot showing price levels"""

@@ -20,6 +20,7 @@ from data_fetcher import get_current_price
 from analysis import weibull_touch_probability
 from data_manager import data_manager
 from utils import get_price_levels, get_sell_price_levels
+from gui_strategies import QuantityDistributionFactory, RungPositioningFactory
 
 warnings.filterwarnings('ignore')
 
@@ -313,41 +314,9 @@ class LadderCalculator:
     
     def _calculate_quantity_distribution(self, depths: np.ndarray, budget: float,
                                         distribution_method: str, current_price: float) -> np.ndarray:
-        """Calculate quantity allocations using different distribution methods"""
-        num_rungs = len(depths)
-        prices = current_price * (1 - depths / 100)
-        
-        # Calculate touch probabilities for advanced methods
-        if self.weibull_params and distribution_method in ['adaptive_kelly', 'volatility_weighted', 'sharpe_maximizing', 'probability_weighted']:
-            theta = self.weibull_params['buy']['theta']
-            p = self.weibull_params['buy']['p']
-            touch_probs = np.array([weibull_touch_probability(d, theta, p) for d in depths])
-        else:
-            touch_probs = np.ones(num_rungs) * 0.5  # Fallback
-        
-        # Distribution strategies
-        strategies = {
-            # Basic methods
-            'equal_quantity': lambda: (np.full(num_rungs, budget / num_rungs / prices.mean()) * prices) * (budget / (np.full(num_rungs, budget / num_rungs / prices.mean()) * prices).sum()),
-            'equal_notional': lambda: np.full(num_rungs, budget / num_rungs),
-            'linear_increase': lambda: np.linspace(0.5, 2.0, num_rungs) / np.linspace(0.5, 2.0, num_rungs).sum() * budget,
-            'exponential_increase': lambda: np.exp(np.linspace(-1, 1, num_rungs)) / np.exp(np.linspace(-1, 1, num_rungs)).sum() * budget,
-            'price_weighted': lambda: np.full(num_rungs, budget / num_rungs),
-            
-            # Advanced methods
-            'risk_parity': lambda: (1.0 / (depths + 1)) / (1.0 / (depths + 1)).sum() * budget,
-            'adaptive_kelly': lambda: self._adaptive_kelly_allocation(depths, touch_probs, budget, prices),
-            'volatility_weighted': lambda: self._volatility_weighted_allocation(depths, budget, prices),
-            'sharpe_maximizing': lambda: self._sharpe_maximizing_allocation(depths, touch_probs, budget, prices),
-            'fibonacci_weighted': lambda: self._fibonacci_weighted_allocation(num_rungs, budget),
-            'probability_weighted': lambda: (touch_probs / touch_probs.sum()) * budget
-        }
-        
-        if distribution_method in strategies:
-            return strategies[distribution_method]()
-        else:
-            print(f"Warning: Unknown distribution method '{distribution_method}', using equal_notional")
-            return np.full(num_rungs, budget / num_rungs)
+        """Calculate quantity allocations using strategy pattern"""
+        strategy = QuantityDistributionFactory.create_strategy(distribution_method)
+        return strategy.calculate(depths, budget, current_price, self.weibull_params)
     
     def _adaptive_kelly_allocation(self, depths: np.ndarray, touch_probs: np.ndarray, 
                                    budget: float, prices: np.ndarray) -> np.ndarray:
@@ -411,23 +380,10 @@ class LadderCalculator:
     def _calculate_advanced_positioning(self, method: str, num_rungs: int, d_min: float, 
                                        d_max: float, theta: float, p: float,
                                        current_price: float, timeframe_hours: int) -> np.ndarray:
-        """Calculate ladder depths using advanced positioning methods"""
-        
-        if method == 'support_resistance':
-            return self._support_resistance_positioning(num_rungs, d_min, d_max, current_price)
-        elif method == 'volume_profile':
-            return self._volume_profile_positioning(num_rungs, d_min, d_max, current_price)
-        elif method == 'touch_pattern':
-            return self._touch_pattern_positioning(num_rungs, d_min, d_max, theta, p, current_price)
-        elif method == 'adaptive_probability':
-            return self._adaptive_probability_positioning(num_rungs, d_min, d_max, theta, p)
-        elif method == 'fibonacci':
-            return self._fibonacci_positioning(num_rungs, d_min, d_max, current_price)
-        elif method == 'dynamic_density':
-            return self._dynamic_density_positioning(num_rungs, d_min, d_max, theta, p)
-        else:
-            # Fallback to linear
-            return np.linspace(d_min, d_max, num_rungs)
+        """Calculate advanced rung positioning using strategy pattern"""
+        strategy = RungPositioningFactory.create_strategy(method)
+        weibull_params = {'buy': {'theta': theta, 'p': p}} if theta and p else None
+        return strategy.calculate(num_rungs, d_min, d_max, current_price, timeframe_hours, weibull_params)
     
     def _support_resistance_positioning(self, num_rungs: int, d_min: float, d_max: float,
                                        current_price: float) -> np.ndarray:
