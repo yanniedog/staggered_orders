@@ -130,9 +130,10 @@ class ValidationEngine:
             
             # Print result
             status = "[PASS]" if passed else "[FAIL]" if rule.level == ValidationLevel.CRITICAL else "[WARN]"
-            print(f"\n{rule.name.upper().replace('_', ' ')}")
-            print("-" * 30)
-            print(f"{status} {rule.message}")
+            if self.logger:
+                self.logger.logger.info(f"\n{rule.name.upper().replace('_', ' ')}")
+                self.logger.logger.info("-" * 30)
+                self.logger.logger.info(f"{status} {rule.message}")
             
             # Log problems
             if not passed and self.logger:
@@ -142,9 +143,10 @@ class ValidationEngine:
             return result
             
         except Exception as e:
-            print(f"\n{rule.name.upper().replace('_', ' ')}")
-            print("-" * 30)
-            print(f"[ERROR] Rule execution failed: {e}")
+            if self.logger:
+                self.logger.logger.error(f"\n{rule.name.upper().replace('_', ' ')}")
+                self.logger.logger.error("-" * 30)
+                self.logger.logger.error(f"[ERROR] Rule execution failed: {e}")
             return {
                 'rule': rule.name,
                 'level': rule.level,
@@ -155,12 +157,13 @@ class ValidationEngine:
     
     def _print_summary(self, critical_failures: int):
         """Print validation summary."""
-        print("\n" + "="*50)
-        if critical_failures == 0:
-            print("[SUCCESS] All critical validations passed")
-        else:
-            print(f"[FAILURE] {critical_failures} critical validation failures found")
-        print("="*50)
+        if self.logger:
+            self.logger.logger.info("\n" + "="*50)
+            if critical_failures == 0:
+                self.logger.logger.info("[SUCCESS] All critical validations passed")
+            else:
+                self.logger.logger.error(f"[FAILURE] {critical_failures} critical validation failures found")
+            self.logger.logger.info("="*50)
     
     # Rule check methods
     def _check_nan_values(self) -> bool:

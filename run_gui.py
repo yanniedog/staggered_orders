@@ -50,14 +50,15 @@ def kill_existing_sessions():
     except Exception as e:
         print(f"Warning: Could not check for existing sessions: {e}")
 
-def check_dependencies():
+def check_dependencies(logger=None):
     """Check if required dependencies are installed"""
     required = ['dash', 'plotly', 'pandas', 'numpy', 'scipy', 'matplotlib', 'seaborn', 'yaml', 'requests', 'psutil']
     missing = [pkg for pkg in required if not __import__('importlib').util.find_spec(pkg)]
     
     if missing:
-        print(f"Missing packages: {', '.join(missing)}")
-        print("Install with: pip install -r requirements.txt")
+        if logger:
+            logger.logger.error(f"Missing packages: {', '.join(missing)}")
+            logger.logger.error("Install with: pip install -r requirements.txt")
         return False
     return True
 
@@ -65,12 +66,12 @@ def main():
     """Main launcher function with centralized logging"""
     with LoggingContext(output_dir="output", symbol="GUI_LAUNCHER") as logger:
         logger.log_analysis_step("Starting GUI launcher", "STARTED")
-        print("=" * 60)
-        print("    INTERACTIVE STAGGERED ORDER LADDER GUI")
-        print("=" * 60 + "\n")
+        logger.logger.info("=" * 60)
+        logger.logger.info("    INTERACTIVE STAGGERED ORDER LADDER GUI")
+        logger.logger.info("=" * 60)
 
         # Check dependencies
-        if not check_dependencies():
+        if not check_dependencies(logger):
             logger.log_problem("Missing required dependencies", "CRITICAL")
             sys.exit(1)
         logger.log_analysis_step("Dependencies OK", "SUCCESS")
@@ -81,16 +82,16 @@ def main():
         gui_files = ['gui_app.py', 'gui_calculator.py', 'gui_visualizations.py', 'gui_historical.py']
         if missing := [f for f in gui_files if not os.path.exists(f)]:
             logger.log_problem(f"Missing GUI files: {missing}", "CRITICAL")
-            print(f"Missing files: {', '.join(missing)}")
+            logger.logger.error(f"Missing files: {', '.join(missing)}")
             sys.exit(1)
         
         if not os.path.exists('config.yaml'):
-            print("Warning: config.yaml not found, using defaults.")
+            logger.logger.warning("Warning: config.yaml not found, using defaults.")
         if not os.path.exists('cache_SOLUSDT_1h_1095d.csv'):
-            print("Warning: No cache found. Run 'python main.py' first for real data.\n")
+            logger.logger.warning("Warning: No cache found. Run 'python main.py' first for real data.")
 
-        print("Starting GUI on http://localhost:8050")
-        print("Press Ctrl+C to stop.\n")
+        logger.logger.info("Starting GUI on http://localhost:8050")
+        logger.logger.info("Press Ctrl+C to stop.")
 
         try:
             from gui_app import InteractiveLadderGUI
@@ -98,12 +99,12 @@ def main():
             gui.run(debug=False, port=8050)
             logger.log_analysis_step("GUI started", "SUCCESS")
         except KeyboardInterrupt:
-            print("\nShutting down...")
+            logger.logger.info("\nShutting down...")
             sys.exit(0)
         except Exception as e:
             logger.log_error(e, "GUI startup")
-            print(f"Error: {e}")
-            print("Try: pip install -r requirements.txt")
+            logger.logger.error(f"Error: {e}")
+            logger.logger.error("Try: pip install -r requirements.txt")
             sys.exit(1)
 
 if __name__ == "__main__":

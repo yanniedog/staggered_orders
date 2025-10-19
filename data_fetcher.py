@@ -10,6 +10,7 @@ import time
 import functools
 from typing import Tuple, Optional, Callable, Any
 from config import load_config
+from logger import log_info, log_warning, log_error, log_debug
 
 
 def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0, 
@@ -38,11 +39,11 @@ def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0,
                         break
                     
                     delay = base_delay * (2 ** attempt) if exponential else base_delay
-                    print(f"Attempt {attempt + 1} failed: {e}")
-                    print(f"Retrying in {delay:.1f} seconds...")
+                    log_error(f"Attempt {attempt + 1} failed: {e}")
+                    log_info(f"Retrying in {delay:.1f} seconds...")
                     time.sleep(delay)
             
-            print(f"All {max_retries + 1} attempts failed")
+            log_error(f"All {max_retries + 1} attempts failed")
             raise last_exception
         
         return wrapper
@@ -67,12 +68,12 @@ def fetch_klines(symbol: str, interval: str, start_time: int, end_time: int) -> 
     current_start = start_time
     batch_count = 0
     
-    print(f"Fetching {symbol} data...")
+    log_info(f"Fetching {symbol} data...")
     
     while current_start < end_time:
         batch_count += 1
         if batch_count % 10 == 0:
-            print(f"  Batch {batch_count}...")
+            log_info(f"  Batch {batch_count}...")
         
         params = {'symbol': symbol, 'interval': interval, 'startTime': current_start, 'endTime': end_time, 'limit': 1000}
         
@@ -85,13 +86,13 @@ def fetch_klines(symbol: str, interval: str, start_time: int, end_time: int) -> 
             current_start = klines[-1][6] + 1
             time.sleep(0.1)
         except Exception as e:
-            print(f"Error: {e}")
+            log_error(f"Error: {e}")
             raise
     
     if not all_data:
         raise ValueError("No data retrieved")
     
-    print(f"Fetched {len(all_data)} candles in {batch_count} batches")
+    log_info(f"Fetched {len(all_data)} candles in {batch_count} batches")
     
     # Convert to DataFrame
     df = pd.DataFrame(all_data, columns=['open_time', 'open', 'high', 'low', 'close', 'volume',
@@ -145,27 +146,27 @@ def fetch_solusdt_data(interval: str = '1h', lookback_days: int = None, force_re
     
     # Check cache first
     if not force_refresh and config['cache_data'] and is_cache_valid(cache_file, cache_hours):
-        print(f"Loading cached data from {cache_file}")
+        log_info(f"Loading cached data from {cache_file}")
         try:
             df = pd.read_csv(cache_file, parse_dates=['open_time'])
             
             # Validate cached data
             if len(df) == 0 or df[['open', 'high', 'low', 'close', 'volume']].isna().any().any():
-                print("Warning: Cached data invalid, will refetch")
+                log_warning("Warning: Cached data invalid, will refetch")
             elif (df['high'] < df['low']).any() or (df['open'] <= 0).any() or (df['close'] <= 0).any():
-                print("Warning: Cached data contains invalid prices, will refetch")
+                log_warning("Warning: Cached data contains invalid prices, will refetch")
             else:
-                print(f"Cached data validated: {len(df)} candles from {df['open_time'].min()} to {df['open_time'].max()}")
+                log_info(f"Cached data validated: {len(df)} candles from {df['open_time'].min()} to {df['open_time'].max()}")
                 return df
         except Exception as e:
-            print(f"Error loading cached data: {e}")
+            log_error(f"Error loading cached data: {e}")
     
     # Calculate time range
     end_time = datetime.now()
     start_time = end_time - timedelta(days=lookback_days)
     
-    print(f"Fetching {symbol} data from {start_time} to {end_time}")
-    print(f"Interval: {interval}, Lookback: {lookback_days} days")
+    log_info(f"Fetching {symbol} data from {start_time} to {end_time}")
+    log_info(f"Interval: {interval}, Lookback: {lookback_days} days")
     
     # Try to fetch data with fallback for shorter periods
     max_attempts = 3
@@ -177,7 +178,7 @@ def fetch_solusdt_data(interval: str = '1h', lookback_days: int = None, force_re
             if attempt > 0:
                 fallback_days = max(90, lookback_days // (2 ** attempt))
                 fallback_start_time = end_time - timedelta(days=fallback_days)
-                print(f"Retry attempt {attempt + 1}: Trying shorter period ({fallback_days} days)")
+                log_info(f"Retry attempt {attempt + 1}: Trying shorter period ({fallback_days} days)")
             else:
                 fallback_start_time = start_time
             
@@ -192,26 +193,26 @@ def fetch_solusdt_data(interval: str = '1h', lookback_days: int = None, force_re
             if len(df) == 0:
                 raise ValueError("No data returned from API")
             
-            print(f"Successfully fetched {len(df)} candles")
-            print(f"Date range: {df['open_time'].min()} to {df['open_time'].max()}")
-            print(f"Price range: ${df['low'].min():.2f} - ${df['high'].max():.2f}")
+            log_info(f"Successfully fetched {len(df)} candles")
+            log_info(f"Date range: {df['open_time'].min()} to {df['open_time'].max()}")
+            log_info(f"Price range: ${df['low'].min():.2f} - ${df['high'].max():.2f}")
             
             # Cache the data
             if config['cache_data']:
                 df.to_csv(cache_file, index=False)
-                print(f"Data cached to {cache_file}")
+                log_info(f"Data cached to {cache_file}")
             
             return df
             
         except Exception as e:
             attempt += 1
-            print(f"Attempt {attempt} failed: {e}")
+            log_error(f"Attempt {attempt} failed: {e}")
             
             if attempt >= max_attempts:
-                print("All fetch attempts failed")
+                log_error("All fetch attempts failed")
                 raise
             
-            print(f"Retrying with shorter time period...")
+            log_info(f"Retrying with shorter time period...")
             time.sleep(2 ** attempt)
 
 
@@ -237,7 +238,7 @@ def get_current_price(symbol: str = 'SOLUSDT') -> float:
     elif symbol not in ['BTCUSDT', 'ETHUSDT'] and price > 50000:
         raise ValueError(f"Price seems unreasonably high for {symbol}: {price}")
     
-    print(f"Current {symbol} price: ${price:.2f}")
+    log_info(f"Current {symbol} price: ${price:.2f}")
     return price
 
 
@@ -250,24 +251,24 @@ def get_fallback_price() -> float:
             df = pd.read_csv(cache_file, parse_dates=['open_time'])
             if len(df) > 0:
                 latest_price = df['close'].iloc[-1]
-                print(f"Using latest cached price: ${latest_price:.2f}")
+                log_info(f"Using latest cached price: ${latest_price:.2f}")
                 return float(latest_price)
     except Exception as e:
-        print(f"Could not get price from cache: {e}")
+        log_error(f"Could not get price from cache: {e}")
     
     # Use reasonable default for SOLUSDT
     default_price = 180.0
-    print(f"Using default price: ${default_price:.2f}")
-    print("Warning: Using default price - results may not reflect current market conditions")
+    log_info(f"Using default price: ${default_price:.2f}")
+    log_warning("Warning: Using default price - results may not reflect current market conditions")
     return default_price
 
 
 if __name__ == "__main__":
     # Test the data fetcher
     df = fetch_solusdt_data()
-    print(f"Fetched {len(df)} candles")
-    print(f"Date range: {df['open_time'].min()} to {df['open_time'].max()}")
-    print(f"Price range: ${df['low'].min():.2f} - ${df['high'].max():.2f}")
+    log_info(f"Fetched {len(df)} candles")
+    log_info(f"Date range: {df['open_time'].min()} to {df['open_time'].max()}")
+    log_info(f"Price range: ${df['low'].min():.2f} - ${df['high'].max():.2f}")
     
     current_price = get_current_price()
-    print(f"Current SOLUSDT price: ${current_price:.2f}")
+    log_info(f"Current SOLUSDT price: ${current_price:.2f}")

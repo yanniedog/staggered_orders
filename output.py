@@ -15,6 +15,7 @@ from scipy import stats
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils.dataframe import dataframe_to_rows
+from logger import log_info, log_warning, log_error, log_debug
 
 
 def create_output_dir():
@@ -23,7 +24,7 @@ def create_output_dir():
         if not os.path.exists('output'):
             os.makedirs('output')
     except Exception as e:
-        print(f"Warning: Could not create output directory: {e}")
+        log_warning(f"Warning: Could not create output directory: {e}")
 
 
 # ============================================================================
@@ -44,15 +45,15 @@ def plot_probability_fit_quality_dashboard(depths: np.ndarray, empirical_probs: 
         
         # Validate inputs
         if len(depths) == 0 or len(empirical_probs) == 0:
-            print("Warning: Empty data arrays provided to probability fit dashboard")
+            log_warning("Warning: Empty data arrays provided to probability fit dashboard")
             return
         
         if np.any(np.isnan(depths)) or np.any(np.isnan(empirical_probs)):
-            print("Warning: NaN values in probability fit data")
+            log_warning("Warning: NaN values in probability fit data")
             return
         
         if np.any(np.isnan(depths_upward)) or np.any(np.isnan(empirical_probs_upward)):
-            print("Warning: NaN values in upward probability fit data")
+            log_warning("Warning: NaN values in upward probability fit data")
             return
         
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
@@ -111,10 +112,10 @@ def plot_probability_fit_quality_dashboard(depths: np.ndarray, empirical_probs: 
         plt.savefig('output/probability_fit_quality_dashboard.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        print("Probability fit quality dashboard saved to output/probability_fit_quality_dashboard.png")
+        log_info("Probability fit quality dashboard saved to output/probability_fit_quality_dashboard.png")
         
     except Exception as e:
-        print(f"Error creating probability fit quality dashboard: {e}")
+        log_error(f"Error creating probability fit quality dashboard: {e}")
         plt.close('all')
 
 
@@ -129,7 +130,7 @@ def plot_ladder_configuration_summary(depths: np.ndarray, allocations: np.ndarra
         create_output_dir()
         
         if len(depths) == 0 or len(allocations) == 0:
-            print("Warning: Empty data arrays provided to ladder configuration summary")
+            log_warning("Warning: Empty data arrays provided to ladder configuration summary")
             return
         
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
@@ -174,10 +175,10 @@ def plot_ladder_configuration_summary(depths: np.ndarray, allocations: np.ndarra
         plt.savefig('output/ladder_configuration_summary.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        print("Ladder configuration summary saved to output/ladder_configuration_summary.png")
+        log_info("Ladder configuration summary saved to output/ladder_configuration_summary.png")
         
     except Exception as e:
-        print(f"Error creating ladder configuration summary: {e}")
+        log_error(f"Error creating ladder configuration summary: {e}")
         plt.close('all')
 
 
@@ -191,7 +192,7 @@ def plot_expected_performance_metrics(scenarios_df: pd.DataFrame, optimal_scenar
         create_output_dir()
         
         if scenarios_df is None or scenarios_df.empty:
-            print("Warning: Empty scenarios DataFrame provided to performance metrics")
+            log_warning("Warning: Empty scenarios DataFrame provided to performance metrics")
             return
         
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
@@ -236,10 +237,10 @@ def plot_expected_performance_metrics(scenarios_df: pd.DataFrame, optimal_scenar
         plt.savefig('output/expected_performance_metrics.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        print("Expected performance metrics saved to output/expected_performance_metrics.png")
+        log_info("Expected performance metrics saved to output/expected_performance_metrics.png")
         
     except Exception as e:
-        print(f"Error creating expected performance metrics: {e}")
+        log_error(f"Error creating expected performance metrics: {e}")
         plt.close('all')
 
 
@@ -253,7 +254,7 @@ def plot_profitability_distribution(paired_orders_df: pd.DataFrame) -> None:
         create_output_dir()
         
         if paired_orders_df.empty or 'profit_pct' not in paired_orders_df.columns:
-            print("Warning: No profit data available for profitability distribution")
+            log_warning("Warning: No profit data available for profitability distribution")
             return
         
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
@@ -284,10 +285,10 @@ def plot_profitability_distribution(paired_orders_df: pd.DataFrame) -> None:
         plt.savefig('output/profitability_distribution.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        print("Profitability distribution saved to output/profitability_distribution.png")
+        log_info("Profitability distribution saved to output/profitability_distribution.png")
         
     except Exception as e:
-        print(f"Error creating profitability distribution: {e}")
+        log_error(f"Error creating profitability distribution: {e}")
         plt.close('all')
 
 
@@ -301,7 +302,7 @@ def plot_improved_paired_orders(paired_orders_df: pd.DataFrame, current_price: f
         create_output_dir()
         
         if paired_orders_df.empty:
-            print("Warning: Empty paired orders DataFrame provided")
+            log_warning("Warning: Empty paired orders DataFrame provided")
             return
         
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
@@ -356,10 +357,10 @@ def plot_improved_paired_orders(paired_orders_df: pd.DataFrame, current_price: f
         plt.savefig('output/improved_paired_orders.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        print("Improved paired orders visualization saved to output/improved_paired_orders.png")
+        log_info("Improved paired orders visualization saved to output/improved_paired_orders.png")
         
     except Exception as e:
-        print(f"Error creating improved paired orders visualization: {e}")
+        log_error(f"Error creating improved paired orders visualization: {e}")
         plt.close('all')
 
 
@@ -373,7 +374,7 @@ def plot_assumption_validation_panel(scenarios_df: pd.DataFrame, optimal_scenari
         create_output_dir()
         
         if scenarios_df is None or scenarios_df.empty:
-            print("Warning: Empty scenarios DataFrame provided to assumption validation")
+            log_warning("Warning: Empty scenarios DataFrame provided to assumption validation")
             return
         
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
@@ -418,10 +419,10 @@ def plot_assumption_validation_panel(scenarios_df: pd.DataFrame, optimal_scenari
         plt.savefig('output/assumption_validation_panel.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        print("Assumption validation panel saved to output/assumption_validation_panel.png")
+        log_info("Assumption validation panel saved to output/assumption_validation_panel.png")
         
     except Exception as e:
-        print(f"Error creating assumption validation panel: {e}")
+        log_error(f"Error creating assumption validation panel: {e}")
         plt.close('all')
 
 
@@ -435,7 +436,7 @@ def plot_reality_check_dashboard(scenarios_df: pd.DataFrame, optimal_scenario: D
         create_output_dir()
         
         if scenarios_df is None or scenarios_df.empty:
-            print("Warning: Empty scenarios DataFrame provided to reality check")
+            log_warning("Warning: Empty scenarios DataFrame provided to reality check")
             return
         
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
@@ -480,10 +481,10 @@ def plot_reality_check_dashboard(scenarios_df: pd.DataFrame, optimal_scenario: D
         plt.savefig('output/reality_check_dashboard.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        print("Reality check dashboard saved to output/reality_check_dashboard.png")
+        log_info("Reality check dashboard saved to output/reality_check_dashboard.png")
         
     except Exception as e:
-        print(f"Error creating reality check dashboard: {e}")
+        log_error(f"Error creating reality check dashboard: {e}")
         plt.close('all')
 
 
@@ -517,7 +518,7 @@ def create_all_visualizations(depths: np.ndarray, empirical_probs: np.ndarray,
         scenarios_df: Scenario analysis results
         optimal_scenario: Optimal scenario details
     """
-    print("Creating all visualizations...")
+    log_info("Creating all visualizations...")
     
     try:
         # Create individual visualizations
@@ -538,10 +539,10 @@ def create_all_visualizations(depths: np.ndarray, empirical_probs: np.ndarray,
         
         plot_reality_check_dashboard(scenarios_df, optimal_scenario)
         
-        print("All visualizations created successfully")
+        log_info("All visualizations created successfully")
         
     except Exception as e:
-        print(f"Error creating visualizations: {e}")
+        log_error(f"Error creating visualizations: {e}")
 
 
 # ============================================================================
@@ -565,11 +566,11 @@ def create_excel_workbook(paired_orders_df: pd.DataFrame, depths: np.ndarray,
         
         # Validate inputs
         if paired_orders_df is None or paired_orders_df.empty:
-            print("Warning: Empty paired orders DataFrame provided to Excel export")
+            log_warning("Warning: Empty paired orders DataFrame provided to Excel export")
             return
         
         if np.any(np.isnan(depths)) or np.any(np.isnan(allocations)):
-            print("Warning: NaN values in depths or allocations")
+            log_warning("Warning: NaN values in depths or allocations")
             return
         
         wb = Workbook()
@@ -622,10 +623,10 @@ def create_excel_workbook(paired_orders_df: pd.DataFrame, depths: np.ndarray,
         
         # Save workbook
         wb.save('output/ladder_report.xlsx')
-        print("Excel workbook saved to output/ladder_report.xlsx")
+        log_info("Excel workbook saved to output/ladder_report.xlsx")
         
     except Exception as e:
-        print(f"Error creating Excel workbook: {e}")
+        log_error(f"Error creating Excel workbook: {e}")
 
 
 def create_executive_summary_sheet(ws, paired_orders_df: pd.DataFrame, fit_metrics: Dict, 
@@ -694,7 +695,7 @@ def create_executive_summary_sheet(ws, paired_orders_df: pd.DataFrame, fit_metri
             row += 1
         
     except Exception as e:
-        print(f"Error creating executive summary sheet: {e}")
+        log_error(f"Error creating executive summary sheet: {e}")
 
 
 def create_paired_orders_sheet(ws, paired_orders_df: pd.DataFrame) -> None:
@@ -727,7 +728,7 @@ def create_paired_orders_sheet(ws, paired_orders_df: pd.DataFrame) -> None:
             ws.cell(row=row_idx, column=12).value = row.get('expected_profit', 0)
         
     except Exception as e:
-        print(f"Error creating paired orders sheet: {e}")
+        log_error(f"Error creating paired orders sheet: {e}")
 
 
 def create_buy_parameters_sheet(ws, theta: float, p: float, fit_metrics: Dict, 
@@ -788,7 +789,7 @@ def create_buy_parameters_sheet(ws, theta: float, p: float, fit_metrics: Dict,
         ws[f'B{row}'] = f'{np.max(depths) - np.min(depths):.3f}%'
         
     except Exception as e:
-        print(f"Error creating buy parameters sheet: {e}")
+        log_error(f"Error creating buy parameters sheet: {e}")
 
 
 def create_sell_parameters_sheet(ws, theta_sell: float, p_sell: float, fit_metrics_sell: Dict, 
@@ -849,7 +850,7 @@ def create_sell_parameters_sheet(ws, theta_sell: float, p_sell: float, fit_metri
         ws[f'B{row}'] = f'{np.mean(actual_profits):.2f}%'
         
     except Exception as e:
-        print(f"Error creating sell parameters sheet: {e}")
+        log_error(f"Error creating sell parameters sheet: {e}")
 
 
 def create_calculations_sheet(ws, depths: np.ndarray, allocations: np.ndarray, theta: float, p: float) -> None:
@@ -880,7 +881,7 @@ def create_calculations_sheet(ws, depths: np.ndarray, allocations: np.ndarray, t
             ws.cell(row=row, column=5).value = f'{expected_return:.4f}'
         
     except Exception as e:
-        print(f"Error creating calculations sheet: {e}")
+        log_error(f"Error creating calculations sheet: {e}")
 
 
 def create_profit_sheet(ws, paired_orders_df: pd.DataFrame) -> None:
@@ -913,7 +914,7 @@ def create_profit_sheet(ws, paired_orders_df: pd.DataFrame) -> None:
             ws[f'B{row}'] = f'{paired_orders_df["profit_pct"].max():.2f}%'
         
     except Exception as e:
-        print(f"Error creating profit sheet: {e}")
+        log_error(f"Error creating profit sheet: {e}")
 
 
 def create_probability_sheet(ws, depths: np.ndarray, theta: float, p: float) -> None:
@@ -942,7 +943,7 @@ def create_probability_sheet(ws, depths: np.ndarray, theta: float, p: float) -> 
             ws.cell(row=row, column=3).value = f'{expected_timeframe:.1f}' if expected_timeframe != np.inf else '∞'
         
     except Exception as e:
-        print(f"Error creating probability sheet: {e}")
+        log_error(f"Error creating probability sheet: {e}")
 
 
 def create_scenario_analysis_sheet(ws, scenarios_df: pd.DataFrame) -> None:
@@ -965,7 +966,7 @@ def create_scenario_analysis_sheet(ws, scenarios_df: pd.DataFrame) -> None:
                     ws.cell(row=row_idx, column=col_idx).value = value
         
     except Exception as e:
-        print(f"Error creating scenario analysis sheet: {e}")
+        log_error(f"Error creating scenario analysis sheet: {e}")
 
 
 def create_sensitivity_analysis_sheet(ws, rung_sensitivity_df: pd.DataFrame, depth_sensitivity_df: pd.DataFrame) -> None:
@@ -988,7 +989,7 @@ def create_sensitivity_analysis_sheet(ws, rung_sensitivity_df: pd.DataFrame, dep
                 row += 1
         
     except Exception as e:
-        print(f"Error creating sensitivity analysis sheet: {e}")
+        log_error(f"Error creating sensitivity analysis sheet: {e}")
 
 
 def create_combined_sensitivity_sheet(ws, combined_sensitivity_df: pd.DataFrame) -> None:
@@ -1007,7 +1008,7 @@ def create_combined_sensitivity_sheet(ws, combined_sensitivity_df: pd.DataFrame)
             ws.cell(row=row_idx, column=2).value = f'{row.get("capital_efficiency", 0):.4f}'
         
     except Exception as e:
-        print(f"Error creating combined sensitivity sheet: {e}")
+        log_error(f"Error creating combined sensitivity sheet: {e}")
 
 
 if __name__ == "__main__":
@@ -1046,14 +1047,14 @@ if __name__ == "__main__":
     
     optimal_scenario = {'profit_target_pct': 2.0, 'expected_monthly_profit': 200}
     
-    print("=== VISUALIZATION TEST ===")
+    log_info("=== VISUALIZATION TEST ===")
     create_all_visualizations(depths, empirical_probs, theta, p, fit_metrics,
                             depths, allocations, paired_orders_df,
                             depths_upward, empirical_probs_upward, theta_sell, p_sell, fit_metrics_sell,
                             depths_upward, np.array([1.0, 2.0, 3.0, 4.0, 5.0]),
                             scenarios_df, optimal_scenario)
     
-    print("\n=== EXCEL EXPORT TEST ===")
+    log_info("\n=== EXCEL EXPORT TEST ===")
     create_excel_workbook(paired_orders_df, depths, allocations, theta, p, fit_metrics,
                         10000.0, 100.0, theta_sell, p_sell, fit_metrics_sell,
                         depths_upward, np.array([1.0, 2.0, 3.0, 4.0, 5.0]),

@@ -3,6 +3,7 @@ Centralized configuration loader.
 Single source of truth for all configuration loading.
 """
 import yaml
+from logger import log_info, log_warning, log_error, log_debug
 
 _CONFIG_CACHE = None
 
@@ -36,11 +37,11 @@ def load_config():
             _CONFIG_CACHE = defaults
             return _CONFIG_CACHE
     except FileNotFoundError:
-        print("Warning: config.yaml not found, using defaults")
+        log_warning("Warning: config.yaml not found, using defaults")
         _CONFIG_CACHE = _get_default_config()
         return _CONFIG_CACHE
     except yaml.YAMLError as e:
-        print(f"Warning: Error parsing config.yaml: {e}")
+        log_warning(f"Warning: Error parsing config.yaml: {e}")
         _CONFIG_CACHE = _get_default_config()
         return _CONFIG_CACHE
 

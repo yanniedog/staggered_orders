@@ -13,6 +13,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import os
 import seaborn as sns
+from logger import log_info, log_warning, log_error, log_debug
 from config import load_config
 
 
@@ -100,7 +101,7 @@ def calculate_optimal_rungs(theta: float, p: float, budget: float,
     best_rungs = min_rungs
     best_return = -np.inf
     
-    print(f"Evaluating rung counts from {min_rungs} to {max_rungs}...")
+    log_info(f"Evaluating rung counts from {min_rungs} to {max_rungs}...")
     
     for num_rungs in range(min_rungs, max_rungs + 1):
         expected_return = expected_return_for_rungs(num_rungs)
@@ -109,15 +110,15 @@ def calculate_optimal_rungs(theta: float, p: float, budget: float,
             best_return = expected_return
             best_rungs = num_rungs
         
-        # Print first few and best so far
+        # Log first few and best so far
         if num_rungs <= min_rungs + 5 or num_rungs == best_rungs:
-            print(f"  {num_rungs} rungs: {expected_return:.6f} expected return")
+            log_info(f"  {num_rungs} rungs: {expected_return:.6f} expected return")
     
     optimal_rungs = best_rungs
-    print(f"Optimal rungs calculation:")
-    print(f"  Evaluated range: {min_rungs}-{max_rungs}")
-    print(f"  Optimal rungs: {optimal_rungs}")
-    print(f"  Best expected return: {best_return:.6f}")
+    log_info(f"Optimal rungs calculation:")
+    log_info(f"  Evaluated range: {min_rungs}-{max_rungs}")
+    log_info(f"  Optimal rungs: {optimal_rungs}")
+    log_info(f"  Best expected return: {best_return:.6f}")
     
     return optimal_rungs
 
@@ -146,9 +147,9 @@ def generate_profit_scenarios(min_profit: float, max_profit: float,
     
     scenarios = [10 ** log_val for log_val in log_scenarios]
     
-    print(f"Generated {len(scenarios)} realistic profit scenarios (per pair):")
+    log_info(f"Generated {len(scenarios)} realistic profit scenarios (per pair):")
     for i, scenario in enumerate(scenarios):
-        print(f"  Scenario {i+1}: {scenario:.1f}% per pair")
+        log_info(f"  Scenario {i+1}: {scenario:.1f}% per pair")
     
     return scenarios
 
@@ -191,7 +192,7 @@ def calculate_depth_range_for_profit(profit_pct: float, theta: float, p: float,
     # Apply risk adjustment
     d_max = d_max * risk_adjustment
     
-    print(f"Depth range for {profit_pct:.1f}% profit: {d_min:.1f}% - {d_max:.1f}%")
+    log_info(f"Depth range for {profit_pct:.1f}% profit: {d_min:.1f}% - {d_max:.1f}%")
     
     return d_min, d_max
 
@@ -302,10 +303,10 @@ def analyze_profit_scenarios(theta: float, p: float, theta_sell: float, p_sell: 
     
     results = []
     
-    print(f"Analyzing {len(profit_scenarios)} profit scenarios...")
+    log_info(f"Analyzing {len(profit_scenarios)} profit scenarios...")
     
     for i, profit_target in enumerate(profit_scenarios):
-        print(f"\nScenario {i+1}/{len(profit_scenarios)}: {profit_target:.1f}% profit target")
+        log_info(f"\nScenario {i+1}/{len(profit_scenarios)}: {profit_target:.1f}% profit target")
         
         # Calculate optimal rungs for this profit target
         optimal_rungs = calculate_optimal_rungs(
@@ -354,9 +355,9 @@ def analyze_profit_scenarios(theta: float, p: float, theta_sell: float, p_sell: 
     df = pd.DataFrame(results)
     df = df.sort_values('expected_profit_per_dollar', ascending=False).reset_index(drop=True)
     
-    print(f"\nScenario analysis complete. Top 3 scenarios:")
+    log_info(f"\nScenario analysis complete. Top 3 scenarios:")
     for i, (_, row) in enumerate(df.head(3).iterrows()):
-        print(f"  {i+1}. {row['profit_target_pct']:.1f}% profit: "
+        log_info(f"  {i+1}. {row['profit_target_pct']:.1f}% profit: "
               f"{row['expected_profit_per_dollar']:.4f} monthly return, "
               f"{row['expected_timeframe_hours']:.1f}h timeframe")
     
@@ -377,11 +378,11 @@ def get_optimal_scenario(scenarios_df: pd.DataFrame, metric: str = 'expected_pro
     optimal_idx = scenarios_df[metric].idxmax()
     optimal_scenario = scenarios_df.loc[optimal_idx].to_dict()
     
-    print(f"Optimal scenario selected:")
-    print(f"  Profit target: {optimal_scenario['profit_target_pct']:.1f}%")
-    print(f"  Rungs: {optimal_scenario['num_rungs']}")
-    print(f"  Expected monthly return: {optimal_scenario.get('expected_profit_per_dollar', 0):.4f}")
-    print(f"  Expected timeframe: {optimal_scenario['expected_timeframe_hours']:.1f} hours")
+    log_info(f"Optimal scenario selected:")
+    log_info(f"  Profit target: {optimal_scenario['profit_target_pct']:.1f}%")
+    log_info(f"  Rungs: {optimal_scenario['num_rungs']}")
+    log_info(f"  Expected monthly return: {optimal_scenario.get('expected_profit_per_dollar', 0):.4f}")
+    log_info(f"  Expected timeframe: {optimal_scenario['expected_timeframe_hours']:.1f} hours")
     
     return optimal_scenario
 
@@ -414,19 +415,19 @@ def analyze_rung_sensitivity(theta: float, p: float, theta_sell: float, p_sell: 
     if config.get('num_rungs') is not None:
         # Use fixed number of rungs
         rung_counts = [config['num_rungs']]
-        print(f"Using fixed number of rungs: {config['num_rungs']}")
+        log_info(f"Using fixed number of rungs: {config['num_rungs']}")
     else:
         # Use optimization range
         rung_counts = [10, 15, 20, 25, 30, 35, 40, 45, 50]
         rung_counts = [r for r in rung_counts if config['min_rungs'] <= r <= config['max_rungs']]
-        print(f"Using optimization range: {config['min_rungs']}-{config['max_rungs']} rungs")
+        log_info(f"Using optimization range: {config['min_rungs']}-{config['max_rungs']} rungs")
     
     results = []
     
-    print(f"Analyzing rung sensitivity for {profit_target}% profit target...")
+    log_info(f"Analyzing rung sensitivity for {profit_target}% profit target...")
     
     for num_rungs in rung_counts:
-        print(f"  Testing {num_rungs} rungs...")
+        log_info(f"  Testing {num_rungs} rungs...")
         
         # Calculate depth ranges for this profit target
         d_min, d_max = calculate_depth_range_for_profit(profit_target, theta, p)
@@ -499,10 +500,10 @@ def analyze_rung_sensitivity(theta: float, p: float, theta_sell: float, p_sell: 
     df = pd.DataFrame(results)
     df = df.sort_values('capital_efficiency', ascending=False).reset_index(drop=True)
     
-    print(f"\nRung sensitivity analysis complete.")
-    print("Top configurations by capital efficiency:")
+    log_info(f"\nRung sensitivity analysis complete.")
+    log_info("Top configurations by capital efficiency:")
     for _, row in df.head(3).iterrows():
-        print(f"  {row['num_rungs']} rungs: {row['capital_efficiency']:.4f} efficiency, "
+        log_info(f"  {row['num_rungs']} rungs: {row['capital_efficiency']:.4f} efficiency, "
               f"{row['expected_timeframe_hours']:.1f}h timeframe")
     
     return df
@@ -527,7 +528,7 @@ def analyze_depth_sensitivity(theta: float, p: float, theta_sell: float, p_sell:
     Returns:
         DataFrame with depth sensitivity analysis
     """
-    print(f"Analyzing depth sensitivity for {num_rungs} rungs, {profit_target}% profit target...")
+    log_info(f"Analyzing depth sensitivity for {num_rungs} rungs, {profit_target}% profit target...")
     
     # Test different depth ranges
     depth_ranges = [
@@ -541,7 +542,7 @@ def analyze_depth_sensitivity(theta: float, p: float, theta_sell: float, p_sell:
     results = []
     
     for d_min, d_max in depth_ranges:
-        print(f"  Testing depth range: {d_min:.1f}% - {d_max:.1f}%")
+        log_info(f"  Testing depth range: {d_min:.1f}% - {d_max:.1f}%")
         
         # Generate buy ladder depths
         buy_depths = np.linspace(d_min, d_max, num_rungs)
@@ -595,10 +596,10 @@ def analyze_depth_sensitivity(theta: float, p: float, theta_sell: float, p_sell:
     df = pd.DataFrame(results)
     df = df.sort_values('capital_efficiency', ascending=False).reset_index(drop=True)
     
-    print(f"\nDepth sensitivity analysis complete.")
-    print("Top configurations by capital efficiency:")
+    log_info(f"\nDepth sensitivity analysis complete.")
+    log_info("Top configurations by capital efficiency:")
     for _, row in df.head(3).iterrows():
-        print(f"  {row['depth_range_name']}: {row['capital_efficiency']:.4f} efficiency, "
+        log_info(f"  {row['depth_range_name']}: {row['capital_efficiency']:.4f} efficiency, "
               f"{row['expected_timeframe_hours']:.1f}h timeframe")
     
     return df
@@ -622,7 +623,7 @@ def analyze_combined_sensitivity(theta: float, p: float, theta_sell: float, p_se
     Returns:
         DataFrame with combined sensitivity analysis
     """
-    print(f"Analyzing combined sensitivity for {profit_target}% profit target...")
+    log_info(f"Analyzing combined sensitivity for {profit_target}% profit target...")
     
     # Test combinations of rungs and depth ranges
     rung_counts = [15, 20, 25, 30, 35]
@@ -637,7 +638,7 @@ def analyze_combined_sensitivity(theta: float, p: float, theta_sell: float, p_se
     
     for num_rungs in rung_counts:
         for d_min, d_max in depth_ranges:
-            print(f"  Testing {num_rungs} rungs, depth {d_min:.1f}%-{d_max:.1f}%")
+            log_info(f"  Testing {num_rungs} rungs, depth {d_min:.1f}%-{d_max:.1f}%")
             
             # Generate buy ladder depths
             buy_depths = np.linspace(d_min, d_max, num_rungs)
@@ -692,10 +693,10 @@ def analyze_combined_sensitivity(theta: float, p: float, theta_sell: float, p_se
     df = pd.DataFrame(results)
     df = df.sort_values('capital_efficiency', ascending=False).reset_index(drop=True)
     
-    print(f"\nCombined sensitivity analysis complete.")
-    print("Top configurations by capital efficiency:")
+    log_info(f"\nCombined sensitivity analysis complete.")
+    log_info("Top configurations by capital efficiency:")
     for _, row in df.head(5).iterrows():
-        print(f"  {row['num_rungs']} rungs, {row['depth_range_name']}: "
+        log_info(f"  {row['num_rungs']} rungs, {row['depth_range_name']}: "
               f"{row['capital_efficiency']:.4f} efficiency, "
               f"{row['expected_timeframe_hours']:.1f}h timeframe")
     
@@ -772,7 +773,7 @@ def plot_scenario_comparison_matrix(scenarios_df: pd.DataFrame) -> None:
     plt.savefig('output/scenario_comparison_matrix.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    print("Scenario comparison matrix saved to output/scenario_comparison_matrix.png")
+    log_info("Scenario comparison matrix saved to output/scenario_comparison_matrix.png")
 
 
 def plot_risk_return_tradeoff(scenarios_df: pd.DataFrame) -> None:
@@ -846,7 +847,7 @@ def plot_risk_return_tradeoff(scenarios_df: pd.DataFrame) -> None:
     plt.savefig('output/risk_return_tradeoff.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    print("Risk-return tradeoff plot saved to output/risk_return_tradeoff.png")
+    log_info("Risk-return tradeoff plot saved to output/risk_return_tradeoff.png")
 
 
 def create_all_scenario_visualizations(scenarios_df: pd.DataFrame, rung_sensitivity_df: pd.DataFrame, 
@@ -860,7 +861,7 @@ def create_all_scenario_visualizations(scenarios_df: pd.DataFrame, rung_sensitiv
         depth_sensitivity_df: Depth sensitivity analysis results
         combined_sensitivity_df: Combined sensitivity analysis results
     """
-    print("Creating scenario analysis visualizations...")
+    log_info("Creating scenario analysis visualizations...")
     
     # Create individual plots
     plot_scenario_comparison_matrix(scenarios_df)
@@ -876,7 +877,7 @@ def create_all_scenario_visualizations(scenarios_df: pd.DataFrame, rung_sensitiv
     if not combined_sensitivity_df.empty:
         plot_combined_sensitivity(combined_sensitivity_df)
     
-    print("All scenario visualizations created successfully")
+    log_info("All scenario visualizations created successfully")
 
 
 def plot_rung_sensitivity(rung_sensitivity_df: pd.DataFrame) -> None:
@@ -903,7 +904,7 @@ def plot_rung_sensitivity(rung_sensitivity_df: pd.DataFrame) -> None:
     plt.savefig('output/rung_sensitivity.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    print("Rung sensitivity plot saved to output/rung_sensitivity.png")
+    log_info("Rung sensitivity plot saved to output/rung_sensitivity.png")
 
 
 def plot_depth_sensitivity(depth_sensitivity_df: pd.DataFrame) -> None:
@@ -936,7 +937,7 @@ def plot_depth_sensitivity(depth_sensitivity_df: pd.DataFrame) -> None:
     plt.savefig('output/depth_sensitivity.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    print("Depth sensitivity plot saved to output/depth_sensitivity.png")
+    log_info("Depth sensitivity plot saved to output/depth_sensitivity.png")
 
 
 def plot_combined_sensitivity(combined_sensitivity_df: pd.DataFrame) -> None:
@@ -964,7 +965,7 @@ def plot_combined_sensitivity(combined_sensitivity_df: pd.DataFrame) -> None:
     plt.savefig('output/combined_sensitivity.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    print("Combined sensitivity plot saved to output/combined_sensitivity.png")
+    log_info("Combined sensitivity plot saved to output/combined_sensitivity.png")
 
 
 if __name__ == "__main__":
@@ -977,16 +978,16 @@ if __name__ == "__main__":
     current_price = 100.0
     min_notional = 10.0
     
-    print("=== SCENARIO ANALYSIS TEST ===")
+    log_info("=== SCENARIO ANALYSIS TEST ===")
     scenarios_df = analyze_profit_scenarios(
         theta, p, theta_sell, p_sell, budget, current_price, min_notional,
         1.5, 0.25, None, 720, '1h'
     )
     
-    print("\n=== SENSITIVITY ANALYSIS TEST ===")
+    log_info("\n=== SENSITIVITY ANALYSIS TEST ===")
     rung_sensitivity_df = analyze_rung_sensitivity(theta, p, theta_sell, p_sell, budget, current_price)
     depth_sensitivity_df = analyze_depth_sensitivity(theta, p, theta_sell, p_sell, budget, current_price)
     combined_sensitivity_df = analyze_combined_sensitivity(theta, p, theta_sell, p_sell, budget, current_price)
     
-    print("\n=== VISUALIZATION TEST ===")
+    log_info("\n=== VISUALIZATION TEST ===")
     create_all_scenario_visualizations(scenarios_df, rung_sensitivity_df, depth_sensitivity_df, combined_sensitivity_df)

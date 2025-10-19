@@ -2,3 +2,11 @@ cache*.*
 usage_stats.json
 precalc_cache.json
 precalc_cache.json.tmp
+*.log
+*.pyc
+*.json
+*.cypthon-311.pyc
+*.json.tmp
+__pycache__/*.*
+__pycache__/
+

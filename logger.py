@@ -57,7 +57,7 @@ class AnalysisLogger:
         self._setup_warning_capture()
         
     def _setup_logging(self):
-        """Setup file and console logging."""
+        """Setup file and console logging with stdout/stderr capture."""
         # Create logger
         self.logger = logging.getLogger(f"analysis_{self.run_id}")
         self.logger.setLevel(logging.DEBUG)
@@ -83,6 +83,37 @@ class AnalysisLogger:
         # Add handlers
         self.logger.addHandler(file_handler)
         self.logger.addHandler(console_handler)
+        
+        # Capture stdout and stderr
+        self._setup_output_capture()
+        
+    def _setup_output_capture(self):
+        """Capture stdout and stderr to ensure all output goes to logfile."""
+        import io
+        
+        # Store original stdout/stderr
+        self.original_stdout = sys.stdout
+        self.original_stderr = sys.stderr
+        
+        # Create custom stream that logs to file
+        class LoggingStream(io.TextIOWrapper):
+            def __init__(self, logger, level, original_stream):
+                self.logger = logger
+                self.level = level
+                self.original_stream = original_stream
+                
+            def write(self, message):
+                if message.strip():  # Only log non-empty messages
+                    self.logger.log(self.level, message.strip())
+                self.original_stream.write(message)
+                return len(message)
+                
+            def flush(self):
+                self.original_stream.flush()
+        
+        # Redirect stdout and stderr
+        sys.stdout = LoggingStream(self.logger, logging.INFO, self.original_stdout)
+        sys.stderr = LoggingStream(self.logger, logging.ERROR, self.original_stderr)
         
     def _setup_warning_capture(self):
         """Capture warnings and add them to log data."""
@@ -237,6 +268,13 @@ class AnalysisLogger:
         self.log_data["sensitivity"] = sensitivity
         self.logger.info("Sensitivity analysis completed")
         
+    def cleanup(self):
+        """Restore original stdout/stderr streams."""
+        if hasattr(self, 'original_stdout'):
+            sys.stdout = self.original_stdout
+        if hasattr(self, 'original_stderr'):
+            sys.stderr = self.original_stderr
+            
     def finalize(self):
         """Finalize the log and save all data."""
         self.log_data["end_time"] = datetime.now().isoformat()
@@ -285,7 +323,51 @@ class AnalysisLogger:
         self.logger.info(f"Data file: {self.json_file}")
         self.logger.info("=" * 60)
         
+        # Cleanup stdout/stderr redirection
+        self.cleanup()
+        
         return self.log_data
+
+
+# Global logger context for easy access from any module
+_global_logger = None
+
+def get_global_logger():
+    """Get the current global logger instance."""
+    return _global_logger
+
+def set_global_logger(logger):
+    """Set the global logger instance."""
+    global _global_logger
+    _global_logger = logger
+
+def log_info(message):
+    """Log info message using global logger."""
+    if _global_logger:
+        _global_logger.logger.info(message)
+    else:
+        print(message)
+
+def log_warning(message):
+    """Log warning message using global logger."""
+    if _global_logger:
+        _global_logger.logger.warning(message)
+    else:
+        print(f"WARNING: {message}")
+
+def log_error(message):
+    """Log error message using global logger."""
+    if _global_logger:
+        _global_logger.logger.error(message)
+    else:
+        print(f"ERROR: {message}")
+
+def log_debug(message):
+    """Log debug message using global logger."""
+    if _global_logger:
+        _global_logger.logger.debug(message)
+    else:
+        print(f"DEBUG: {message}")
 
 
 def create_analysis_logger(output_dir: str = "output", symbol: str = "SOLUSDT") -> AnalysisLogger:
@@ -313,6 +395,7 @@ class LoggingContext:
         
     def __enter__(self):
         self.logger = create_analysis_logger(self.output_dir, self.symbol)
+        set_global_logger(self.logger)
         return self.logger
         
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -320,6 +403,7 @@ class LoggingContext:
             if exc_type:
                 self.logger.log_error(exc_val, "Context manager exit")
             self.logger.finalize()
+        set_global_logger(None)
 
 
 if __name__ == "__main__":
