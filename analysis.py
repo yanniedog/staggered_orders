@@ -5,7 +5,6 @@ Combines scenario_analyzer.py, sensitivity_analyzer.py, and scenario_visualizer.
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Optional
-import yaml
 from scipy.optimize import minimize_scalar
 import warnings
 import matplotlib.pyplot as plt
@@ -14,12 +13,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import os
 import seaborn as sns
-
-
-def load_config() -> dict:
-    """Load configuration from config.yaml"""
-    with open('config.yaml', 'r') as f:
-        return yaml.safe_load(f)
+from config import load_config
 
 
 def create_output_dir():

@@ -1,3 +1,4 @@
 cache*.*
 usage_stats.json
 precalc_cache.json
+precalc_cache.json.tmp

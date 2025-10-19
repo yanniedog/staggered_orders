@@ -4,14 +4,8 @@ Order specification builder with exchange constraints.
 import pandas as pd
 import numpy as np
 from typing import Tuple, Dict
-import yaml
 from weibull_fit import weibull_tail
-
-
-def load_config() -> dict:
-    """Load configuration from config.yaml"""
-    with open('config.yaml', 'r') as f:
-        return yaml.safe_load(f)
+from config import load_config
 
 
 def round_to_tick_size(price: float, tick_size: float) -> float:

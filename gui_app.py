@@ -207,6 +207,41 @@ class InteractiveLadderGUI:
         """Create the left sidebar control panel"""
         return html.Div([
             html.Div([
+                # Recommendations Section
+                html.Div([
+                    html.Label("💡 Recommended Settings", style={'fontWeight': 'bold', 'color': '#ffc107', 'fontSize': '16px'}),
+                    html.Div([
+                        html.P([
+                            html.Strong("For Optimal Performance:", style={'color': '#28a745'}),
+                            html.Br(),
+                            "• Quantity: ", html.Span("Kelly Optimized", style={'color': '#00bfff', 'fontWeight': 'bold'}),
+                            " - Best risk-adjusted returns",
+                            html.Br(),
+                            "• Positioning: ", html.Span("Dynamic Density", style={'color': '#00bfff', 'fontWeight': 'bold'}),
+                            " - Adapts to market volatility",
+                            html.Br(),
+                            "• Timeframe: ", html.Span("1-3 Years", style={'color': '#00bfff', 'fontWeight': 'bold'}),
+                            " - Balanced historical data",
+                            html.Br(),
+                            "• Rungs: ", html.Span("15-25", style={'color': '#00bfff', 'fontWeight': 'bold'}),
+                            " - Good granularity without fragmentation"
+                        ], style={'color': '#e0e0e0', 'fontSize': '12px', 'lineHeight': '1.8', 'marginBottom': '10px'}),
+                        html.P([
+                            html.Strong("Conservative:", style={'color': '#6c757d'}), 
+                            " Aggression 1-2, Equal Notional, Linear positioning",
+                            html.Br(),
+                            html.Strong("Aggressive:", style={'color': '#dc3545'}), 
+                            " Aggression 4-5, Exponential Increase, Expected Value positioning"
+                        ], style={'color': '#b0b0b0', 'fontSize': '11px', 'lineHeight': '1.6', 'fontStyle': 'italic'})
+                    ], style={
+                        'padding': '12px',
+                        'backgroundColor': '#2d2d2d',
+                        'borderRadius': '8px',
+                        'border': '1px solid #444444',
+                        'marginTop': '8px'
+                    })
+                ], style={'marginBottom': '25px', 'paddingBottom': '20px', 'borderBottom': '2px solid #444444'}),
+                
                 # Aggression Level Slider
                 html.Div([
                     html.Label("Aggression Level", style={'fontWeight': 'bold', 'color': '#ffffff'}),
@@ -298,7 +333,7 @@ class InteractiveLadderGUI:
                     dcc.Dropdown(
                         id='rung-positioning-dropdown',
                         options=self.get_sorted_positioning_options(),
-                        value='linear',
+                        value='dynamic_density',
                         style={'width': '100%', 'marginBottom': '10px', 'borderRadius': '4px'},
                         className='dark-dropdown'
                     ),
@@ -1455,7 +1490,7 @@ class InteractiveLadderGUI:
                 'calculation_id': calculation_id
             }
 
-            return figures, kpis, buy_table, sell_table, cache_data
+            return (*figures, *kpis.values(), buy_table, sell_table, cache_data)
 
         except Exception as e:
             print(f"Error in smart async chart generation: {e}")
@@ -1602,7 +1637,7 @@ class InteractiveLadderGUI:
                 'calculation_id': calculation_id
             }
 
-            return tuple(ordered_figures), kpis, buy_table, sell_table, cache_data
+            return (*ordered_figures, *kpis.values(), buy_table, sell_table, cache_data)
 
         except Exception as e:
             print(f"Error in async chart generation: {e}")
@@ -1693,24 +1728,6 @@ class InteractiveLadderGUI:
         empty_fig = go.Figure()
         empty_fig.add_annotation(
             text="Error loading data - check console for details",
-            x=0.5, y=0.5, showarrow=False,
-            font=dict(size=16, color="red")
-        )
-        empty_fig.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font={'color': '#ffffff'},
-            height=400
-        )
-        empty_figs = (empty_fig,) * 9
-        empty_table = html.Div("No data available", style={'color': '#6c757d'})
-        return (*empty_figs, "N/A", "N/A", "N/A", "N/A", empty_table, empty_table, cache_data)
-
-    def _get_error_response(self, cache_data):
-        """Get error response with empty figures"""
-        empty_fig = go.Figure()
-        empty_fig.add_annotation(
-            text="Error loading data - check console for details", 
             x=0.5, y=0.5, showarrow=False,
             font=dict(size=16, color="red")
         )

@@ -4,13 +4,7 @@ Consolidates buy and sell size optimization into a single bidirectional module.
 """
 import numpy as np
 from typing import Tuple
-import yaml
-
-
-def load_config() -> dict:
-    """Load configuration from config.yaml"""
-    with open('config.yaml', 'r') as f:
-        return yaml.safe_load(f)
+from config import load_config
 
 
 def kelly_criterion_allocation_with_monotonicity(depths: np.ndarray, theta: float, p: float, 
