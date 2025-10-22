@@ -31,7 +31,7 @@ class BaseChart(ABC):
             'neutral': '#6c757d'
         }
         
-        # Common layout template
+        # Common layout template (only valid Layout properties)
         self.layout_template = {
             'plot_bgcolor': 'rgba(0,0,0,0)',
             'paper_bgcolor': 'rgba(0,0,0,0)',
@@ -40,9 +40,7 @@ class BaseChart(ABC):
             'yaxis': {'gridcolor': '#444444', 'color': '#ffffff', 'showgrid': True},
             'colorway': [self.colors['primary'], self.colors['secondary'],
                         self.colors['success'], self.colors['danger'],
-                        self.colors['warning'], self.colors['info']],
-            'modebar': {'remove': ['zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d']},
-            'config': {'displayModeBar': False, 'responsive': True}
+                        self.colors['warning'], self.colors['info']]
         }
     
     @abstractmethod
@@ -255,7 +253,7 @@ class TouchProbabilityChart(ProbabilityChart):
                 
                 # Generate smooth curve for Weibull fit
                 smooth_depths = np.linspace(depths.min(), depths.max(), 100)
-                from weibull_fit import weibull_touch_probability
+                from analysis import weibull_touch_probability
                 weibull_probs = np.array([weibull_touch_probability(d, theta, p) for d in smooth_depths])
                 
                 fig.add_trace(go.Scatter(

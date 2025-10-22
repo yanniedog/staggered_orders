@@ -12,16 +12,19 @@ from typing import Dict, Any, List, Optional
 def generate_cache_key(config: Dict[str, Any]) -> str:
     """
     Generate a unique cache key for a configuration.
+    Uses 7-part underscore-separated format for consistency with parsing.
     
     Args:
         config: Configuration dictionary
         
     Returns:
-        Unique cache key string
+        Unique cache key string in format: SYMBOL_AGG_RUNGS_HOURS_BUDGET_DISTRIB_POSITION
     """
-    # Create a deterministic string from the config
-    config_str = json.dumps(config, sort_keys=True)
-    return hashlib.md5(config_str.encode()).hexdigest()
+    # Use 7-part format compatible with _parse_cache_key() in gui_app.py
+    return (f"{config['crypto_symbol']}_{config['aggression_level']}_"
+            f"{config['num_rungs']}_{config['timeframe_hours']}_"
+            f"{config['budget']}_{config['quantity_distribution']}_"
+            f"{config['rung_positioning']}")
 
 
 def map_timeframe_slider_to_hours(slider_value: int) -> int:

@@ -96,20 +96,55 @@ class AnalysisLogger:
         self.original_stderr = sys.stderr
         
         # Create custom stream that logs to file
-        class LoggingStream(io.TextIOWrapper):
+        class LoggingStream:
             def __init__(self, logger, level, original_stream):
                 self.logger = logger
                 self.level = level
                 self.original_stream = original_stream
+                self._closed = False
                 
             def write(self, message):
-                if message.strip():  # Only log non-empty messages
+                if not self._closed and message.strip():  # Only log non-empty messages
                     self.logger.log(self.level, message.strip())
-                self.original_stream.write(message)
+                if not self._closed:
+                    self.original_stream.write(message)
                 return len(message)
                 
             def flush(self):
-                self.original_stream.flush()
+                if not self._closed:
+                    self.original_stream.flush()
+                    
+            def fileno(self):
+                """Return file descriptor for compatibility with click/Flask."""
+                if hasattr(self.original_stream, 'fileno'):
+                    return self.original_stream.fileno()
+                return -1
+                
+            def isatty(self):
+                """Return True if stream is a TTY."""
+                if hasattr(self.original_stream, 'isatty'):
+                    return self.original_stream.isatty()
+                return False
+                
+            def readable(self):
+                """Return True if stream is readable."""
+                return False
+                
+            def writable(self):
+                """Return True if stream is writable."""
+                return True
+                
+            def seekable(self):
+                """Return True if stream is seekable."""
+                return False
+                
+            def close(self):
+                """Close the stream."""
+                self._closed = True
+                
+            def __getattr__(self, name):
+                """Delegate any other attributes to the original stream."""
+                return getattr(self.original_stream, name)
         
         # Redirect stdout and stderr
         sys.stdout = LoggingStream(self.logger, logging.INFO, self.original_stdout)

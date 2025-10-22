@@ -38,6 +38,19 @@ warnings.filterwarnings('ignore')
 
 class InteractiveLadderGUI:
     def __init__(self):
+        # Initialize logger FIRST - find the active analysis logger
+        import logging
+        # Find the analysis logger that's currently active
+        analysis_loggers = [name for name in logging.Logger.manager.loggerDict.keys() if name.startswith('analysis_')]
+        if analysis_loggers:
+            # Use the most recent analysis logger
+            latest_logger = max(analysis_loggers)
+            self.logger = logging.getLogger(latest_logger)
+        else:
+            # Fallback to standard logger
+            self.logger = logging.getLogger('analysis')
+        self.logger.info("Logger initialized in InteractiveLadderGUI.__init__")
+        
         self.app = dash.Dash(
             __name__,
             suppress_callback_exceptions=True,
@@ -71,10 +84,14 @@ class InteractiveLadderGUI:
         self.precalc_paused = False  # For user priority
 
         # Load persistent cache on startup
+        self.logger.info("Loading persistent cache...")
         self.load_persistent_cache()
+        self.logger.info("Persistent cache loaded")
         
         # Usage tracking system
+        self.logger.info("Initializing usage tracker...")
         self.usage_tracker = UsageTracker('usage_stats.json')
+        self.logger.info("Usage tracker initialized")
 
         # Smart recalculation system
         self.last_settings = {}  # Track last used settings
@@ -93,8 +110,13 @@ class InteractiveLadderGUI:
             'fit-quality-dashboard': 3
         }
 
+        self.logger.info("Setting up GUI layout...")
         self.setup_layout()
+        self.logger.info("GUI layout setup complete")
+        
+        self.logger.info("Setting up GUI callbacks...")
         self.setup_callbacks()
+        self.logger.info("GUI callbacks setup complete")
 
         # Start precalculations in background (with error handling)
         try:
@@ -149,12 +171,12 @@ class InteractiveLadderGUI:
                     # User Request Status
                     html.Div([
                         html.Span("⚡", style={'fontSize': '14px', 'marginRight': '8px'}),
-                        html.Span(id='user-request-status', style={'fontSize': '12px', 'fontWeight': 'bold'})
+                        html.Span(id='sidebar-user-request-status', style={'fontSize': '12px', 'fontWeight': 'bold'})
                     ], style={
                         'padding': '8px', 'backgroundColor': '#2d2d2d', 'borderRadius': '6px',
                         'border': '1px solid #444444', 'marginBottom': '10px',
                         'display': 'none'  # Hidden by default, shown during calculations
-                    }, id='user-request-status-container')
+                    }, id='sidebar-user-request-status-container')
                 ], style={'marginBottom': '10px'}),
                 
                 self.create_control_panel()
@@ -599,11 +621,16 @@ class InteractiveLadderGUI:
                     ], style={'width': '48%', 'display': 'inline-block', 'marginLeft': '2%'})
                 ])
             ], style={'backgroundColor': '#2d2d2d', 'padding': '20px', 'borderRadius': '8px', 
-                     'border': '1px solid #444444'})
+                     'border': '1px solid #444444'}),
+            
+            # Test output for debugging
+            html.Div(id='test-output', style={'display': 'none'}),
+            html.Div(id='simple-test', style={'display': 'none'})
         ])
     
     def setup_callbacks(self):
         """Set up all Dash callbacks"""
+        self.logger.info("Setting up Dash callbacks...")
         
         # Main calculation callback - updates all visualizations
         @self.app.callback(
@@ -638,8 +665,15 @@ class InteractiveLadderGUI:
         def update_all_visualizations_callback(aggression_level, num_rungs, timeframe_slider,
                                              budget, quantity_distribution, crypto_symbol, rung_positioning,
                                              trading_fee, min_notional, cache_buster, cache_data):
+            # Debug logging for callback trigger
+            self.logger.info("CALLBACK TRIGGERED: update_all_visualizations_callback")
+            self.logger.info(f"Input values: agg={aggression_level}, rungs={num_rungs}, timeframe_slider={timeframe_slider}")
+            self.logger.info(f"budget={budget}, dist={quantity_distribution}, symbol={crypto_symbol}")
+            self.logger.info(f"pos={rung_positioning}, fee={trading_fee}, min_notional={min_notional}")
+            
             # Map slider position to actual hours
             timeframe_hours = map_timeframe_slider_to_hours(timeframe_slider)
+            self.logger.info(f"Mapped timeframe: {timeframe_slider} -> {timeframe_hours} hours")
 
             return self.update_all_visualizations(aggression_level, num_rungs, timeframe_hours,
                                                 budget, quantity_distribution, crypto_symbol, rung_positioning,
@@ -761,8 +795,8 @@ class InteractiveLadderGUI:
 
         # User Request Status Callback
         @self.app.callback(
-            [Output('user-request-status', 'children'),
-             Output('user-request-status-container', 'style')],
+            [Output('sidebar-user-request-status', 'children'),
+             Output('sidebar-user-request-status-container', 'style')],
             [Input('aggression-slider', 'value'),
              Input('rungs-slider', 'value'),
              Input('timeframe-slider', 'value'),
@@ -789,7 +823,7 @@ class InteractiveLadderGUI:
 
         # Hide user request status when calculations complete
         @self.app.callback(
-            Output('user-request-status-container', 'style', allow_duplicate=True),
+            Output('sidebar-user-request-status-container', 'style', allow_duplicate=True),
             [Input('calculation-cache', 'data')],
             prevent_initial_call=True
         )
@@ -854,6 +888,25 @@ class InteractiveLadderGUI:
                 return html.P("Unable to generate recommendations at this time.", 
                            style={'color': '#6c757d', 'textAlign': 'center'})
 
+        # Test callback to verify callbacks work
+        @self.app.callback(
+            Output('test-output', 'children'),
+            [Input('aggression-slider', 'value')]
+        )
+        def test_callback(value):
+            self.logger.info(f"TEST CALLBACK TRIGGERED with value: {value}")
+            return f"Test callback working: {value}"
+        
+        # Simple callback to test if any callbacks work
+        @self.app.callback(
+            Output('simple-test', 'children'),
+            [Input('interval-component', 'n_intervals')]
+        )
+        def simple_test_callback(n_intervals):
+            self.logger.info(f"SIMPLE TEST CALLBACK TRIGGERED: {n_intervals}")
+            return f"Simple test: {n_intervals}"
+        
+        self.logger.info("All Dash callbacks registered successfully")
     
     def get_sorted_quantity_options(self):
         """Get quantity distribution options sorted by usage frequency"""
@@ -1169,13 +1222,21 @@ class InteractiveLadderGUI:
                                 budget, quantity_distribution, crypto_symbol, rung_positioning,
                                 trading_fee, min_notional, cache_data):
         """Synchronous version of update_all_visualizations with caching"""
+        start_time = time.time()
+        self.logger.info("=" * 80)
+        self.logger.info("UPDATE_ALL_VISUALIZATIONS CALLED")
+        self.logger.info(f"Parameters: symbol={crypto_symbol}, agg={aggression_level}, rungs={num_rungs}, "
+                        f"timeframe={timeframe_hours}h, budget=${budget}, dist={quantity_distribution}, pos={rung_positioning}")
+        
         try:
             # Pause precalculation for user priority
             self.pause_precalculation()
+            self.logger.info("Precalculation paused for user request")
 
             # Simple debouncing
             current_time = time.time() * 1000
             if current_time - self.last_update_time < self.update_debounce_ms:
+                self.logger.info(f"Debounced update (too soon: {current_time - self.last_update_time:.0f}ms < {self.update_debounce_ms}ms)")
                 self.resume_precalculation()
                 return dash.no_update
             
@@ -1183,62 +1244,70 @@ class InteractiveLadderGUI:
 
             # Validate inputs
             if not all([aggression_level, num_rungs, timeframe_hours, budget]):
-                print("Warning: Missing input parameters")
+                self.logger.warning("Missing input parameters - returning no_update")
+                self.logger.warning(f"agg={aggression_level}, rungs={num_rungs}, time={timeframe_hours}, budget={budget}")
                 self.resume_precalculation()
                 return dash.no_update
 
-            # Try to get precalculated result first (fast path)
-            ladder_data = self.get_precalculated_result(
-                aggression_level, num_rungs, timeframe_hours, budget,
-                quantity_distribution, crypto_symbol, rung_positioning
+            # CACHING TEMPORARILY DISABLED - Calculate directly for immediate results
+            self.logger.info(f"Calculating fresh ladder configuration (caching disabled)")
+            self.logger.info(f"INPUT VALUES: agg={aggression_level}, rungs={num_rungs}, timeframe={timeframe_hours}h")
+            self.logger.info(f"INPUT VALUES: budget=${budget}, dist={quantity_distribution}, symbol={crypto_symbol}, pos={rung_positioning}")
+            calc_start = time.time()
+            ladder_data = self.calculator.calculate_ladder_configuration(
+                aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution,
+                crypto_symbol, rung_positioning
             )
-
-            # If not precalculated, calculate now
-            if ladder_data is None:
-                print(f"Calculating: {crypto_symbol} {aggression_level} {num_rungs} {timeframe_hours}h {budget} {quantity_distribution} {rung_positioning}")
-                ladder_data = self.calculator.calculate_ladder_configuration(
-                    aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution,
-                    crypto_symbol, rung_positioning
-                )
-
-                # Save to persistent cache for future use
-                cache_key = self._generate_cache_key({
-                    'aggression_level': aggression_level,
-                    'num_rungs': num_rungs,
-                    'timeframe_hours': timeframe_hours,
-                    'budget': budget,
-                    'quantity_distribution': quantity_distribution,
-                    'crypto_symbol': crypto_symbol,
-                    'rung_positioning': rung_positioning
-                })
-                self.precalc_cache[cache_key] = ladder_data
-                self.save_persistent_cache()
-            else:
-                print(f"Using precalculated result: {crypto_symbol} {aggression_level} {num_rungs} {timeframe_hours}h {budget} {quantity_distribution} {rung_positioning}")
+            calc_elapsed = time.time() - calc_start
+            self.logger.info(f"Ladder calculation completed in {calc_elapsed:.2f}s")
+            
+            # Log the results for debugging
+            if ladder_data:
+                self.logger.info(f"CALCULATION RESULTS:")
+                self.logger.info(f"  Current price: ${ladder_data.get('current_price', 0):.2f}")
+                self.logger.info(f"  Total buy allocation: ${np.sum(ladder_data.get('buy_allocations', [0])):.2f}")
+                self.logger.info(f"  Total sell allocation: ${np.sum(ladder_data.get('sell_allocations', [0])):.2f}")
+                self.logger.info(f"  Buy quantity range: {np.min(ladder_data.get('buy_quantities', [0])):.4f} - {np.max(ladder_data.get('buy_quantities', [0])):.4f}")
+                self.logger.info(f"  Sell quantity range: {np.min(ladder_data.get('sell_quantities', [0])):.4f} - {np.max(ladder_data.get('sell_quantities', [0])):.4f}")
             
             # Track usage of this configuration
             self.usage_tracker.track_usage(
                 aggression_level, num_rungs, timeframe_hours, budget,
                 quantity_distribution, crypto_symbol, rung_positioning
             )
+            self.logger.info("Usage tracked for this configuration")
             
             # Validate ladder data
             if not ladder_data or not isinstance(ladder_data, dict) or 'buy_depths' not in ladder_data:
-                print("Error: Invalid ladder data returned")
+                self.logger.error("Invalid ladder data returned - missing required fields")
+                self.logger.error(f"ladder_data type: {type(ladder_data)}")
+                if isinstance(ladder_data, dict):
+                    self.logger.error(f"ladder_data keys: {list(ladder_data.keys())}")
                 return self._get_error_response(cache_data)
+            
+            self.logger.info(f"Ladder data validated: {len(ladder_data.get('buy_depths', []))} buy rungs, "
+                           f"{len(ladder_data.get('sell_depths', []))} sell rungs")
             
             # Update current timeframe for data interval management
             self.current_timeframe_hours = timeframe_hours
 
             # Generate all visualizations
+            self.logger.info("Generating visualizations...")
+            viz_start = time.time()
             figures = self.visualizer.create_all_charts(ladder_data, timeframe_hours)
+            viz_elapsed = time.time() - viz_start
+            self.logger.info(f"All visualizations generated in {viz_elapsed:.2f}s")
             
             # Calculate KPIs
+            self.logger.info("Calculating KPIs...")
             kpis = self.calculator.calculate_kpis(ladder_data)
+            self.logger.info(f"KPIs calculated: {list(kpis.keys())}")
             
             # Create order tables
+            self.logger.info("Creating order tables...")
             buy_table = self._create_buy_orders_table(ladder_data, trading_fee, min_notional)
             sell_table = self._create_sell_orders_table(ladder_data, trading_fee, min_notional)
+            self.logger.info("Order tables created")
             
             # Update cache
             cache_data = {
@@ -1251,14 +1320,20 @@ class InteractiveLadderGUI:
             
             # Resume precalculation after user request
             self.resume_precalculation()
+            self.logger.info("Precalculation resumed")
 
+            total_elapsed = time.time() - start_time
+            self.logger.info(f"UPDATE_ALL_VISUALIZATIONS COMPLETED in {total_elapsed:.2f}s")
+            self.logger.info("=" * 80)
+            
             # Return all results
             return (*figures, *kpis.values(), buy_table, sell_table, cache_data)
 
         except Exception as e:
-            print(f"Error in visualization update: {e}")
+            self.logger.error(f"ERROR in update_all_visualizations: {e}")
+            self.logger.error(f"Error type: {type(e).__name__}")
             import traceback
-            traceback.print_exc()
+            self.logger.error(f"Traceback:\n{traceback.format_exc()}")
             # Resume precalculation even on error
             self.resume_precalculation()
             return self._get_error_response(cache_data)
@@ -1771,6 +1846,10 @@ class InteractiveLadderGUI:
     
     def start_precalculations(self):
         """Start background precalculations for common parameter combinations"""
+        # PRECALCULATION TEMPORARILY DISABLED FOR TESTING
+        print("Precalculation disabled - calculating on-demand only")
+        return
+        
         if self.precalc_running:
             return
 
@@ -1923,21 +2002,26 @@ class InteractiveLadderGUI:
         }
         
         cache_key = self._generate_cache_key(config)
+        self.logger.info(f"Cache lookup for: {cache_key}")
+        self.logger.info(f"Current cache size: {len(self.precalc_cache)} entries")
 
         # Try exact match first
         result = self.precalc_cache.get(cache_key)
         if result is not None:
-            print(f"Using cached result (exact match): {cache_key}")
+            self.logger.info(f"Cache HIT (exact match): {cache_key}")
             return result
 
+        self.logger.info(f"Cache MISS (exact match): {cache_key}")
+        
         # Try partial matching for better cache utilization
         result = self._find_closest_cache_match(config)
         if result is not None:
-            print(f"Using cached result (closest match): {cache_key}")
+            self.logger.info(f"Cache HIT (closest match): {cache_key}")
             # Cache the result under the new key for future use
             self.precalc_cache[cache_key] = result
             return result
 
+        self.logger.info(f"Cache MISS (no match): {cache_key}")
         return None
 
     def _find_closest_cache_match(self, config):
@@ -1954,6 +2038,10 @@ class InteractiveLadderGUI:
 
     def _configs_are_similar(self, config1, config2):
         """Check if two configurations are similar enough to reuse results"""
+        # Handle None config2
+        if config2 is None:
+            return False
+            
         # Same crypto, timeframe, and positioning method are most important
         if (config1['crypto_symbol'] != config2['crypto_symbol'] or
             config1['timeframe_hours'] != config2['timeframe_hours'] or
@@ -1970,29 +2058,49 @@ class InteractiveLadderGUI:
 
     def _parse_cache_key(self, cache_key):
         """Parse a cache key back into configuration dict"""
-        parts = cache_key.split('_')
-        if len(parts) != 7:
-            return None
+        try:
+            parts = cache_key.split('_')
+            if len(parts) != 7:
+                self.logger.warning(f"Invalid cache key format: {cache_key} (expected 7 parts, got {len(parts)})")
+                return None
 
-        return {
-            'crypto_symbol': parts[0],
-            'aggression_level': int(parts[1]),
-            'num_rungs': int(parts[2]),
-            'timeframe_hours': int(parts[3]),
-            'budget': float(parts[4]),
-            'quantity_distribution': parts[5],
-            'rung_positioning': parts[6]
-        }
+            return {
+                'crypto_symbol': parts[0],
+                'aggression_level': int(parts[1]),
+                'num_rungs': int(parts[2]),
+                'timeframe_hours': int(parts[3]),
+                'budget': float(parts[4]),
+                'quantity_distribution': parts[5],
+                'rung_positioning': parts[6]
+            }
+        except (ValueError, IndexError) as e:
+            self.logger.warning(f"Error parsing cache key '{cache_key}': {e}")
+            return None
 
     def load_persistent_cache(self):
         """Load persistent cache from disk"""
         try:
             import json
+            import numpy as np
             if os.path.exists(self.precalc_cache_file):
                 try:
                     with open(self.precalc_cache_file, 'r') as f:
-                        cache_data = json.load(f)
-                        self.precalc_cache = cache_data
+                        loaded_cache = json.load(f)
+                        
+                        # Convert lists back to numpy arrays
+                        self.precalc_cache = {}
+                        for key, value in loaded_cache.items():
+                            if isinstance(value, dict):
+                                converted_value = {}
+                                for k, v in value.items():
+                                    if isinstance(v, list):
+                                        converted_value[k] = np.array(v)
+                                    else:
+                                        converted_value[k] = v
+                                self.precalc_cache[key] = converted_value
+                            else:
+                                self.precalc_cache[key] = value
+                        
                         print(f"Loaded persistent cache: {len(self.precalc_cache)} configurations")
                     return True
                 except json.JSONDecodeError as e:
@@ -2024,13 +2132,30 @@ class InteractiveLadderGUI:
         """Save cache to persistent storage"""
         try:
             import json
+            import numpy as np
 
             # Only save if we have significant cache
             if len(self.precalc_cache) >= 5:
+                # Convert numpy arrays to lists for JSON serialization
+                serializable_cache = {}
+                for key, value in self.precalc_cache.items():
+                    if isinstance(value, dict):
+                        serializable_value = {}
+                        for k, v in value.items():
+                            if isinstance(v, np.ndarray):
+                                serializable_value[k] = v.tolist()
+                            elif isinstance(v, (np.integer, np.floating)):
+                                serializable_value[k] = float(v)
+                            else:
+                                serializable_value[k] = v
+                        serializable_cache[key] = serializable_value
+                    else:
+                        serializable_cache[key] = value
+                
                 # Write to temporary file first, then rename (atomic operation)
                 temp_file = self.precalc_cache_file + '.tmp'
                 with open(temp_file, 'w') as f:
-                    json.dump(self.precalc_cache, f, indent=2)
+                    json.dump(serializable_cache, f, indent=2)
                 # Atomic rename
                 import os
                 os.replace(temp_file, self.precalc_cache_file)
@@ -2082,6 +2207,11 @@ class InteractiveLadderGUI:
         print(f"Starting Interactive Ladder GUI on http://localhost:{port}")
         print("Note: If you see cached data, please hard refresh your browser (Ctrl+F5)")
 
+        # Configure logging to reduce HTTP noise
+        import logging
+        logging.getLogger('werkzeug').setLevel(logging.WARNING)
+        logging.getLogger('dash').setLevel(logging.WARNING)
+        
         try:
             self.app.run(debug=debug, port=port, dev_tools_hot_reload=True)
         finally:

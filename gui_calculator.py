@@ -11,13 +11,11 @@ import time
 import warnings
 import os
 
-# Import existing modules
-from ladder_depths import calculate_ladder_depths, calculate_sell_ladder_depths
-from size_optimizer import optimize_sizes, optimize_sell_sizes
-from touch_analysis import analyze_touch_probabilities, analyze_upward_touch_probabilities
-from weibull_fit import fit_weibull_tail
+# Import simplified modules
+from analysis import (calculate_ladder_depths, calculate_sell_ladder_depths, optimize_sizes, 
+                     optimize_sell_sizes, analyze_touch_probabilities, analyze_upward_touch_probabilities, 
+                     fit_weibull_tail, weibull_touch_probability)
 from data_fetcher import get_current_price
-from analysis import weibull_touch_probability
 from data_manager import data_manager
 from utils import get_price_levels, get_sell_price_levels
 from gui_strategies import QuantityDistributionFactory, RungPositioningFactory
@@ -97,12 +95,12 @@ class LadderCalculator:
                     'sell': {'theta': 2.5, 'p': 1.2}
                 }
 
-            # Analyze touch probabilities with specific timeframe and interval
+            # Analyze touch probabilities with specific timeframe
             depths, empirical_probs = analyze_touch_probabilities(
-                data_df, timeframe_hours, interval, direction='buy'
+                data_df, timeframe_hours, direction='buy'
             )
             depths_upward, empirical_probs_upward = analyze_touch_probabilities(
-                data_df, timeframe_hours, interval, direction='sell'
+                data_df, timeframe_hours, direction='sell'
             )
 
             # Fit Weibull distributions
@@ -187,18 +185,12 @@ class LadderCalculator:
                 )
             else:
                 # Use standard ladder_depths methods
-                buy_depths = calculate_ladder_depths(
-                    theta, p, num_rungs=num_rungs,
-                    d_min=d_min, d_max=d_max,
-                    method=positioning_method,
-                    current_price=current_price,
-                    profit_target_pct=50.0  # Default profit target
-                )
+                buy_depths = calculate_ladder_depths(theta, p, num_rungs)
             
             # Calculate sell ladder depths
             sell_depths, profit_targets = calculate_sell_ladder_depths(
                 theta_sell, p_sell, buy_depths,
-                target_total_profit=50.0,
+                profit_target_pct=50.0,
                 risk_adjustment_factor=1.5,
                 d_min_sell=d_min * 0.3,
                 d_max_sell=d_max * 0.8,
@@ -210,7 +202,7 @@ class LadderCalculator:
             # Optimize buy sizes or use alternative distribution methods
             if quantity_distribution == 'kelly_optimized':
                 buy_allocations, alpha, expected_returns = optimize_sizes(
-                    buy_depths, theta, p, budget, use_kelly=True
+                    buy_depths, theta, p, budget
                 )
             else:
                 # Use alternative distribution methods
@@ -298,7 +290,9 @@ class LadderCalculator:
             return result
             
         except Exception as e:
+            import traceback
             print(f"Error in ladder calculation: {e}")
+            traceback.print_exc()
             return self._get_fallback_configuration(aggression_level, num_rungs, budget, quantity_distribution, rung_positioning)
     
     def _get_depth_range_for_aggression(self, aggression_level: int) -> Tuple[float, float]:

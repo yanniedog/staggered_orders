@@ -8,7 +8,7 @@ from scipy.stats import pearsonr
 from typing import Tuple, Dict
 import warnings
 
-def analyze_touch_probabilities(df: pd.DataFrame, max_hours: int = 720, direction: str = 'buy') -> Tuple[np.ndarray, np.ndarray]:
+def analyze_touch_probabilities(df: pd.DataFrame, max_hours: int = 720) -> Tuple[np.ndarray, np.ndarray]:
     """
     Analyze touch probabilities from historical data.
     
@@ -119,7 +119,7 @@ def fit_weibull_tail(depths: np.ndarray, probabilities: np.ndarray) -> Tuple[flo
             'n_points': len(valid_depths)
         }
         
-        print(f"Fit complete: theta={theta:.3f}, p={p:.3f}, R2={r_squared:.4f}")
+        print(f"Fit complete: θ={theta:.3f}, p={p:.3f}, R²={r_squared:.4f}")
         
         return theta, p, metrics
         
@@ -197,97 +197,3 @@ def optimize_sizes(depths: np.ndarray, theta: float, p: float, budget: float) ->
 def weibull_touch_probability(depth: float, theta: float, p: float) -> float:
     """Calculate touch probability using Weibull distribution."""
     return np.exp(-(depth / theta) ** p)
-
-def calculate_sell_ladder_depths(theta_sell: float, p_sell: float, buy_depths: np.ndarray, 
-                                profit_target_pct: float, risk_adjustment_factor: float = 1.5,
-                                d_min_sell: float = 0.5, d_max_sell: float = 10.0,
-                                method: str = 'quantile', current_price: float = 100.0,
-                                mean_reversion_rate: float = 0.5, target_total_profit: float = None) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Calculate sell ladder depths (simplified version).
-    
-    Args:
-        theta_sell: Sell-side Weibull scale parameter
-        p_sell: Sell-side Weibull shape parameter
-        buy_depths: Buy ladder depths
-        profit_target_pct: Target profit percentage
-        risk_adjustment_factor: Risk adjustment factor
-        d_min_sell: Minimum sell depth
-        d_max_sell: Maximum sell depth
-        method: Calculation method (ignored in simplified version)
-        current_price: Current market price
-        mean_reversion_rate: Mean reversion rate (ignored in simplified version)
-    
-    Returns:
-        Tuple of (sell_depths, profit_targets)
-    """
-    print(f"Calculating sell ladder depths...")
-    
-    # Simple sell depths based on buy depths
-    sell_depths = buy_depths * 0.5  # Sell at half the buy depth
-    
-    # Profit targets based on buy depths
-    profit_targets = np.full(len(buy_depths), profit_target_pct)
-    
-    print(f"Sell depth range: {sell_depths.min():.2f}% - {sell_depths.max():.2f}%")
-    
-    return sell_depths, profit_targets
-
-def optimize_sell_sizes(buy_quantities: np.ndarray, buy_prices: np.ndarray, 
-                       sell_depths: np.ndarray, sell_prices: np.ndarray, 
-                       profit_targets: np.ndarray, theta_sell: float, p_sell: float,
-                       independent_optimization: bool = True) -> Tuple[np.ndarray, np.ndarray, float]:
-    """
-    Optimize sell sizes (simplified version).
-    
-    Args:
-        buy_quantities: Buy quantities
-        buy_prices: Buy prices
-        sell_depths: Sell depths
-        sell_prices: Sell prices
-        profit_targets: Profit targets
-        theta_sell: Sell-side Weibull scale parameter
-        p_sell: Sell-side Weibull shape parameter
-        independent_optimization: Whether to optimize independently
-    
-    Returns:
-        Tuple of (sell_quantities, actual_profits, alpha_sell)
-    """
-    print(f"Optimizing sell sizes...")
-    
-    # Simple sell quantities (same as buy quantities)
-    sell_quantities = buy_quantities.copy()
-    
-    # Calculate actual profits
-    actual_profits = (sell_prices - buy_prices) / buy_prices * 100
-    
-    # Alpha parameter
-    alpha_sell = 1.0
-    
-    print(f"Sell quantity range: {sell_quantities.min():.2f} - {sell_quantities.max():.2f}")
-    
-    return sell_quantities, actual_profits, alpha_sell
-
-def analyze_upward_touch_probabilities(df: pd.DataFrame, max_hours: int = 720, 
-                                     candle_interval: str = "1h") -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Analyze upward touch probabilities (simplified version).
-    
-    Args:
-        df: DataFrame with OHLCV data
-        max_hours: Maximum analysis window in hours
-        candle_interval: Candle interval
-    
-    Returns:
-        Tuple of (depths, probabilities)
-    """
-    print(f"Analyzing upward touch probabilities...")
-    
-    # For simplicity, use the same analysis as downward but with different parameters
-    depths, probs = analyze_touch_probabilities(df, max_hours)
-    
-    # Scale the depths for upward movement
-    upward_depths = depths * 0.8
-    upward_probs = probs * 0.6  # Upward movements are less likely
-    
-    return upward_depths, upward_probs

@@ -94,8 +94,15 @@ def main():
         logger.logger.info("Press Ctrl+C to stop.")
 
         try:
+            logger.logger.info("Importing InteractiveLadderGUI...")
             from gui_app import InteractiveLadderGUI
+            logger.logger.info("InteractiveLadderGUI imported successfully")
+            
+            logger.logger.info("Instantiating InteractiveLadderGUI...")
             gui = InteractiveLadderGUI()
+            logger.logger.info("InteractiveLadderGUI instantiated successfully")
+            
+            logger.logger.info("Starting GUI server...")
             gui.run(debug=False, port=8050)
             logger.log_analysis_step("GUI started", "SUCCESS")
         except KeyboardInterrupt:

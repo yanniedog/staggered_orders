@@ -1,8 +1,0 @@
-2025-10-18 16:26:08,182 - analysis_20251018_162608 - WARNING - STEP WARNING: Starting GUI launcher
-2025-10-18 16:26:08,183 - analysis_20251018_162608 - WARNING - STEP WARNING: Checking dependencies
-2025-10-18 16:26:43,003 - analysis_20251018_162608 - INFO - STEP: Dependency check
-2025-10-18 16:26:43,003 - analysis_20251018_162608 - WARNING - STEP WARNING: Killing existing sessions
-2025-10-18 16:26:47,040 - analysis_20251018_162608 - INFO - STEP: Killing existing sessions
-2025-10-18 16:26:47,040 - analysis_20251018_162608 - INFO - STEP: GUI files check
-2025-10-18 16:26:47,042 - analysis_20251018_162608 - INFO - STEP: Configuration validation
-2025-10-18 16:26:47,043 - analysis_20251018_162608 - WARNING - STEP WARNING: Starting GUI server

@@ -36,7 +36,7 @@ class VisualizationEngine:
             'neutral': '#6c757d'
         }
         
-        # Chart styling with performance optimizations
+        # Chart styling (only valid Layout properties)
         self.layout_template = {
             'plot_bgcolor': 'rgba(0,0,0,0)',
             'paper_bgcolor': 'rgba(0,0,0,0)',
@@ -45,16 +45,19 @@ class VisualizationEngine:
             'yaxis': {'gridcolor': '#444444', 'color': '#ffffff', 'showgrid': True},
             'colorway': [self.colors['primary'], self.colors['secondary'],
                         self.colors['success'], self.colors['danger'],
-                        self.colors['warning'], self.colors['info']],
-            # Performance optimizations
-            'modebar': {'remove': ['zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d']},
-            'config': {'displayModeBar': False, 'responsive': True}
+                        self.colors['warning'], self.colors['info']]
         }
     
     def create_all_charts(self, ladder_data: Dict, timeframe_hours: int) -> Tuple:
         """Create all visualization charts using chart factory"""
+        import logging
+        import time
+        logger = logging.getLogger('analysis')
+        
         try:
+            start_time = time.time()
             timeframe_display = format_timeframe(timeframe_hours)
+            logger.info(f"Creating all charts for timeframe: {timeframe_display}")
             
             # Chart types in order
             chart_types = [
@@ -69,23 +72,39 @@ class VisualizationEngine:
                 'fit-quality-dashboard'
             ]
             
+            logger.info(f"Chart types to create: {len(chart_types)}")
+            logger.info(f"Ladder data keys: {list(ladder_data.keys())}")
+            
             figures = []
-            for chart_type in chart_types:
+            for idx, chart_type in enumerate(chart_types, 1):
+                chart_start = time.time()
                 try:
+                    logger.info(f"Creating chart {idx}/{len(chart_types)}: {chart_type}")
                     chart = ChartFactory.create_chart(chart_type)
                     figure = chart.create(ladder_data, timeframe_display)
+                    chart_elapsed = time.time() - chart_start
+                    logger.info(f"Successfully created {chart_type} in {chart_elapsed:.2f}s")
                     figures.append(figure)
                 except Exception as e:
-                    print(f"Error creating {chart_type}: {e}")
+                    chart_elapsed = time.time() - chart_start
+                    logger.error(f"Error creating {chart_type} after {chart_elapsed:.2f}s: {e}")
+                    logger.error(f"Error type: {type(e).__name__}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
                     # Create error chart
                     chart = ChartFactory.create_chart('ladder-configuration-chart')  # Use any chart for error
                     figure = chart._create_error_chart(chart_type.replace('-', ' ').title(), str(e))
                     figures.append(figure)
             
+            total_elapsed = time.time() - start_time
+            logger.info(f"All charts created successfully in {total_elapsed:.2f}s")
             return tuple(figures)
             
         except Exception as e:
-            print(f"Error in create_all_charts: {e}")
+            logger.error(f"Critical error in create_all_charts: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             # Return error charts for all
             error_figures = []
             for i in range(9):  # 9 charts

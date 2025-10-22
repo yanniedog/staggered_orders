@@ -33,7 +33,10 @@ def load_config():
         with open('config.yaml', 'r') as f:
             config = yaml.safe_load(f)
             defaults = _get_default_config()
-            defaults.update(config)
+            # Only update non-null values
+            for key, value in config.items():
+                if value is not None:
+                    defaults[key] = value
             _CONFIG_CACHE = defaults
             return _CONFIG_CACHE
     except FileNotFoundError:

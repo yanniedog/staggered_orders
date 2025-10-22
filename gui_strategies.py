@@ -6,7 +6,7 @@ Consolidates calculation logic and makes it more maintainable and extensible.
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
-from weibull_fit import weibull_tail
+from analysis import weibull_tail, weibull_touch_probability
 
 
 class QuantityDistributionStrategy(ABC):
