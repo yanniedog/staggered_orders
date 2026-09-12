@@ -305,35 +305,32 @@ class HistoricalTouchFrequencyChart(BaseChart):
     def create(self, data: Dict[str, Any], timeframe_display: str = "") -> go.Figure:
         """Create historical touch frequency chart"""
         try:
-            buy_touch_probs = data.get('buy_touch_probs', [])
-            sell_touch_probs = data.get('sell_touch_probs', [])
+            historical_data = data.get('historical_data')
             
-            if len(buy_touch_probs) == 0:
-                return self._create_empty_chart("Historical Touch Frequency", "No touch probability data available")
+            if historical_data is None or len(historical_data) == 0:
+                return self._create_empty_chart("Historical Touch Frequency", "No historical data available")
+            
+            # Convert to DataFrame if needed
+            if isinstance(historical_data, dict):
+                df = pd.DataFrame(historical_data)
+            else:
+                df = historical_data
+            
+            if 'timestamp' in df.columns:
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df = df.set_index('timestamp')
             
             fig = go.Figure()
             
-            # Create rung labels
-            rung_labels = [f"Rung {i+1}" for i in range(len(buy_touch_probs))]
-            
-            # Add buy touch probabilities
-            fig.add_trace(go.Bar(
-                x=rung_labels,
-                y=buy_touch_probs,
-                name='Buy Touch Probability',
-                marker_color=self.colors['buy'],
-                hovertemplate='<b>%{x}</b><br>Buy Touch Prob: %{y:.2%}<extra></extra>'
+            # Add price line
+            fig.add_trace(go.Scatter(
+                x=df.index,
+                y=df['close'],
+                mode='lines',
+                name='Price',
+                line=dict(color=self.colors['primary'], width=1),
+                hovertemplate=self._create_hover_template('default')
             ))
-            
-            # Add sell touch probabilities
-            if len(sell_touch_probs) > 0:
-                fig.add_trace(go.Bar(
-                    x=rung_labels,
-                    y=sell_touch_probs,
-                    name='Sell Touch Probability',
-                    marker_color=self.colors['sell'],
-                    hovertemplate='<b>%{x}</b><br>Sell Touch Prob: %{y:.2%}<extra></extra>'
-                ))
             
             return self._apply_common_layout(fig, f"Historical Touch Frequency ({timeframe_display})")
             
@@ -342,45 +339,25 @@ class HistoricalTouchFrequencyChart(BaseChart):
 
 
 class ProfitDistributionChart(BaseChart):
-    """Profit distribution chart"""
-    
+    """Show configured profit targets; these are percentages, not realized cash."""
+
     def create(self, data: Dict[str, Any], timeframe_display: str = "") -> go.Figure:
-        """Create profit distribution chart"""
         try:
-            actual_profits = data.get('actual_profits', [])
-            profit_per_pair = data.get('profit_per_pair', [])
-            
-            if len(actual_profits) == 0:
-                return self._create_empty_chart("Profit Distribution", "No profit data available")
-            
-            fig = go.Figure()
-            
-            # Create rung labels
-            rung_labels = [f"Rung {i+1}" for i in range(len(actual_profits))]
-            
-            # Add actual profits
-            fig.add_trace(go.Bar(
-                x=rung_labels,
-                y=actual_profits,
-                name='Actual Profit',
+            targets = data.get('actual_profits', [])
+            if len(targets) == 0:
+                return self._create_empty_chart("Profit Targets", "No target data available")
+            fig = go.Figure(go.Bar(
+                x=[f"Rung {i + 1}" for i in range(len(targets))],
+                y=targets,
+                name='Target profit (%)',
                 marker_color=self.colors['success'],
-                hovertemplate='<b>%{x}</b><br>Actual Profit: $%{y:.2f}<extra></extra>'
+                hovertemplate='<b>%{x}</b><br>Target: %{y:.2f}%<extra></extra>',
             ))
-            
-            # Add profit per pair if available
-            if len(profit_per_pair) > 0:
-                fig.add_trace(go.Bar(
-                    x=rung_labels,
-                    y=profit_per_pair,
-                    name='Profit per Pair',
-                    marker_color=self.colors['info'],
-                    hovertemplate='<b>%{x}</b><br>Profit per Pair: $%{y:.2f}<extra></extra>'
-                ))
-            
-            return self._apply_common_layout(fig, f"Profit Distribution ({timeframe_display})")
-            
+            self._apply_common_layout(fig, f"Profit Targets ({timeframe_display})")
+            fig.update_yaxes(title_text='Target profit (%)', ticksuffix='%')
+            return fig
         except Exception as e:
-            return self._create_error_chart("Profit Distribution", str(e))
+            return self._create_error_chart("Profit Targets", str(e))
 
 
 class RiskReturnProfileChart(BaseChart):
@@ -389,31 +366,21 @@ class RiskReturnProfileChart(BaseChart):
     def create(self, data: Dict[str, Any], timeframe_display: str = "") -> go.Figure:
         """Create risk-return profile chart"""
         try:
-            buy_touch_probs = data.get('buy_touch_probs', [])
-            actual_profits = data.get('actual_profits', [])
+            risk_return_data = data.get('risk_return_profile', {})
             
-            if len(buy_touch_probs) == 0 or len(actual_profits) == 0:
+            if not risk_return_data:
                 return self._create_empty_chart("Risk-Return Profile", "No risk-return data available")
             
             fig = go.Figure()
             
-            # Calculate risk as inverse of touch probability (higher touch prob = lower risk)
-            risks = 1 - buy_touch_probs
-            returns = actual_profits
-            
             # Add scatter plot
             fig.add_trace(go.Scatter(
-                x=risks,
-                y=returns,
-                mode='markers+lines',
+                x=risk_return_data.get('risks', []),
+                y=risk_return_data.get('returns', []),
+                mode='markers',
                 name='Risk-Return',
-                marker=dict(
-                    color=self.colors['primary'],
-                    size=10,
-                    line=dict(width=1, color='white')
-                ),
-                line=dict(color=self.colors['primary'], width=2),
-                hovertemplate='<b>Rung %{pointIndex+1}</b><br>Risk: %{x:.2%}<br>Return: $%{y:.2f}<extra></extra>'
+                marker=dict(size=8, color=self.colors['warning']),
+                hovertemplate=self._create_hover_template('default')
             ))
             
             return self._apply_common_layout(fig, f"Risk-Return Profile ({timeframe_display})")
@@ -428,39 +395,23 @@ class TouchVsTimeChart(BaseChart):
     def create(self, data: Dict[str, Any], timeframe_display: str = "") -> go.Figure:
         """Create touch vs time chart"""
         try:
-            buy_touch_probs = data.get('buy_touch_probs', [])
-            sell_touch_probs = data.get('sell_touch_probs', [])
+            touch_time_data = data.get('touch_vs_time', {})
             
-            if len(buy_touch_probs) == 0:
-                return self._create_empty_chart("Touch vs Time", "No touch probability data available")
+            if not touch_time_data:
+                return self._create_empty_chart("Touch vs Time", "No touch-time data available")
             
             fig = go.Figure()
             
-            # Create rung labels
-            rung_labels = [f"Rung {i+1}" for i in range(len(buy_touch_probs))]
-            
-            # Add buy touch probabilities over time
+            # Add time series
             fig.add_trace(go.Scatter(
-                x=rung_labels,
-                y=buy_touch_probs,
+                x=touch_time_data.get('times', []),
+                y=touch_time_data.get('touches', []),
                 mode='lines+markers',
-                name='Buy Touch Probability',
-                line=dict(color=self.colors['buy'], width=2),
+                name='Touches',
+                line=dict(color=self.colors['info'], width=2),
                 marker=dict(size=6),
-                hovertemplate='<b>%{x}</b><br>Buy Touch Prob: %{y:.2%}<extra></extra>'
+                hovertemplate=self._create_hover_template('default')
             ))
-            
-            # Add sell touch probabilities over time
-            if len(sell_touch_probs) > 0:
-                fig.add_trace(go.Scatter(
-                    x=rung_labels,
-                    y=sell_touch_probs,
-                    mode='lines+markers',
-                    name='Sell Touch Probability',
-                    line=dict(color=self.colors['sell'], width=2),
-                    marker=dict(size=6),
-                    hovertemplate='<b>%{x}</b><br>Sell Touch Prob: %{y:.2%}<extra></extra>'
-                ))
             
             return self._apply_common_layout(fig, f"Touch vs Time ({timeframe_display})")
             
@@ -501,42 +452,23 @@ class FitQualityDashboardChart(BaseChart):
     def create(self, data: Dict[str, Any], timeframe_display: str = "") -> go.Figure:
         """Create fit quality dashboard chart"""
         try:
-            weibull_params = data.get('weibull_params', {})
-            expected_monthly_fills = data.get('expected_monthly_fills', 0)
-            expected_monthly_profit = data.get('expected_monthly_profit', 0)
-            expected_profit_per_dollar = data.get('expected_profit_per_dollar', 0)
+            fit_quality = data.get('fit_quality', {})
             
-            if not weibull_params:
-                return self._create_empty_chart("Fit Quality Dashboard", "No quality data available")
+            if not fit_quality:
+                return self._create_empty_chart("Fit Quality Dashboard", "No fit quality data available")
             
             fig = go.Figure()
             
-            # Create quality metrics
-            metrics = []
-            values = []
+            # Add quality metrics
+            metrics = list(fit_quality.keys())
+            values = list(fit_quality.values())
             
-            # Add Weibull parameters
-            if 'buy' in weibull_params:
-                buy_params = weibull_params['buy']
-                metrics.extend(['Buy Theta', 'Buy P'])
-                values.extend([buy_params.get('theta', 0), buy_params.get('p', 0)])
-            
-            if 'sell' in weibull_params:
-                sell_params = weibull_params['sell']
-                metrics.extend(['Sell Theta', 'Sell P'])
-                values.extend([sell_params.get('theta', 0), sell_params.get('p', 0)])
-            
-            # Add performance metrics
-            metrics.extend(['Monthly Fills', 'Monthly Profit', 'Profit per $'])
-            values.extend([float(expected_monthly_fills), float(expected_monthly_profit), float(expected_profit_per_dollar)])
-            
-            # Add bars
             fig.add_trace(go.Bar(
                 x=metrics,
                 y=values,
                 name='Quality Metrics',
                 marker_color=self.colors['primary'],
-                hovertemplate='<b>%{x}</b><br>Value: %{y:.2f}<extra></extra>'
+                hovertemplate=self._create_hover_template('kpi')
             ))
             
             return self._apply_common_layout(fig, f"Fit Quality Dashboard ({timeframe_display})")
