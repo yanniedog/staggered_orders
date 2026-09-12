@@ -1120,103 +1120,6 @@ class InteractiveLadderGUI:
         if keys_to_remove:
             print(f"Cleaned up {len(keys_to_remove)} old component cache entries")
 
-    def update_all_visualizations(self, aggression_level, num_rungs, timeframe_hours,
-                                 budget, quantity_distribution, crypto_symbol, rung_positioning,
-                                 trading_fee, min_notional, cache_data):
-        """Main callback that updates all visualizations"""
-        # Pause precalculation for user priority
-        self.pause_precalculation()
-        
-        # Debounce updates
-        current_time = time.time() * 1000
-        if current_time - self.last_update_time < self.update_debounce_ms:
-            self.resume_precalculation()
-            return dash.no_update
-        self.last_update_time = current_time
-        
-        try:
-            # Validate inputs
-            if not all([aggression_level, num_rungs, timeframe_hours, budget]):
-                print("Warning: Missing input parameters")
-                return dash.no_update
-            
-            # Try to get precalculated result first
-            ladder_data = self.get_precalculated_result(
-                aggression_level, num_rungs, timeframe_hours, budget, 
-                quantity_distribution, crypto_symbol, rung_positioning
-            )
-            
-            # If not precalculated, calculate now
-            if ladder_data is None:
-                print(f"Calculating on-demand: {crypto_symbol} {aggression_level} {num_rungs} {timeframe_hours}h {budget} {quantity_distribution} {rung_positioning}")
-                ladder_data = self.calculator.calculate_ladder_configuration(
-                    aggression_level, num_rungs, timeframe_hours, budget, quantity_distribution,
-                    crypto_symbol, rung_positioning
-                )
-
-                # Save to persistent cache for future use
-                cache_key = self._generate_cache_key({
-                    'aggression_level': aggression_level,
-                    'num_rungs': num_rungs,
-                    'timeframe_hours': timeframe_hours,
-                    'budget': budget,
-                    'quantity_distribution': quantity_distribution,
-                    'crypto_symbol': crypto_symbol,
-                    'rung_positioning': rung_positioning
-                })
-                self.precalc_cache[cache_key] = ladder_data
-                self.save_persistent_cache()
-            else:
-                print(f"Using precalculated result: {crypto_symbol} {aggression_level} {num_rungs} {timeframe_hours}h {budget} {quantity_distribution} {rung_positioning}")
-                # ladder_data is already set from precalculated result
-            
-            # Track usage of this configuration
-            self.usage_tracker.track_usage(
-                aggression_level, num_rungs, timeframe_hours, budget,
-                quantity_distribution, crypto_symbol, rung_positioning
-            )
-            
-            # Validate ladder data
-            if not ladder_data or not isinstance(ladder_data, dict) or 'buy_depths' not in ladder_data:
-                print("Error: Invalid ladder data returned")
-                return self._get_error_response(cache_data)
-            
-            # Update current timeframe for data interval management
-            self.current_timeframe_hours = timeframe_hours
-
-            # Generate all visualizations
-            figures = self.visualizer.create_all_charts(ladder_data, timeframe_hours)
-            
-            # Calculate KPIs
-            kpis = self.calculator.calculate_kpis(ladder_data)
-            
-            # Create order tables
-            buy_table = self._create_buy_orders_table(ladder_data, trading_fee, min_notional)
-            sell_table = self._create_sell_orders_table(ladder_data, trading_fee, min_notional)
-            
-            # Update cache
-            cache_data = {
-                'timestamp': current_time,
-                'ladder_data': ladder_data,
-                'kpis': kpis,
-                'trading_fee': trading_fee,
-                'min_notional': min_notional
-            }
-            
-            # Resume precalculation after user request
-            self.resume_precalculation()
-
-            # Trigger status update to hide processing indicator
-            from dash import no_update
-            return (*figures, *kpis.values(), buy_table, sell_table, cache_data)
-
-        except Exception as e:
-            print(f"Error in visualization update: {e}")
-            import traceback
-            traceback.print_exc()
-            # Resume precalculation even on error
-            self.resume_precalculation()
-            return self._get_error_response(cache_data)
 
     def update_all_visualizations(self, aggression_level, num_rungs, timeframe_hours,
                                 budget, quantity_distribution, crypto_symbol, rung_positioning,
@@ -1239,7 +1142,7 @@ class InteractiveLadderGUI:
                 self.logger.info(f"Debounced update (too soon: {current_time - self.last_update_time:.0f}ms < {self.update_debounce_ms}ms)")
                 self.resume_precalculation()
                 return dash.no_update
-            
+
             self.last_update_time = current_time
 
             # Validate inputs
@@ -1287,7 +1190,7 @@ class InteractiveLadderGUI:
             
             self.logger.info(f"Ladder data validated: {len(ladder_data.get('buy_depths', []))} buy rungs, "
                            f"{len(ladder_data.get('sell_depths', []))} sell rungs")
-            
+
             # Update current timeframe for data interval management
             self.current_timeframe_hours = timeframe_hours
 
@@ -1325,7 +1228,7 @@ class InteractiveLadderGUI:
             total_elapsed = time.time() - start_time
             self.logger.info(f"UPDATE_ALL_VISUALIZATIONS COMPLETED in {total_elapsed:.2f}s")
             self.logger.info("=" * 80)
-            
+
             # Return all results
             return (*figures, *kpis.values(), buy_table, sell_table, cache_data)
 
@@ -1569,62 +1472,8 @@ class InteractiveLadderGUI:
             print(f"Error returning cached charts: {e}")
             return self._get_error_response(cache_data)
 
-    def _get_cached_kpis(self, ladder_data):
-        """Get KPIs from cache or return default values"""
-        try:
-            # For now, return default values - could be enhanced to cache KPIs separately
-            return {
-                'total_profit': "Cached",
-                'monthly_fills': "Cached",
-                'capital_efficiency': "Cached",
-                'timeframe': "Cached"
-            }
-        except Exception as e:
-            print(f"Error getting cached KPIs: {e}")
-            return {
-                'total_profit': "N/A",
-                'monthly_fills': "N/A",
-                'capital_efficiency': "N/A",
-                'timeframe': "N/A"
-            }
 
-    def _get_cached_kpis(self, ladder_data):
-        """Get KPIs from cache or return default values"""
-        try:
-            # For now, return default values - could be enhanced to cache KPIs separately
-            return {
-                'total_profit': "Cached",
-                'monthly_fills': "Cached",
-                'capital_efficiency': "Cached",
-                'timeframe': "Cached"
-            }
-        except Exception as e:
-            print(f"Error getting cached KPIs: {e}")
-            return {
-                'total_profit': "N/A",
-                'monthly_fills': "N/A",
-                'capital_efficiency': "N/A",
-                'timeframe': "N/A"
-            }
 
-    def _get_cached_kpis(self, ladder_data):
-        """Get KPIs from cache or return default values"""
-        try:
-            # For now, return default values - could be enhanced to cache KPIs separately
-            return {
-                'total_profit': "Cached",
-                'monthly_fills': "Cached",
-                'capital_efficiency': "Cached",
-                'timeframe': "Cached"
-            }
-        except Exception as e:
-            print(f"Error getting cached KPIs: {e}")
-            return {
-                'total_profit': "N/A",
-                'monthly_fills': "N/A",
-                'capital_efficiency': "N/A",
-                'timeframe': "N/A"
-            }
 
     def _get_cached_kpis(self, ladder_data):
         """Get KPIs from cache or return default values"""

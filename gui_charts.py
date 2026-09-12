@@ -339,34 +339,25 @@ class HistoricalTouchFrequencyChart(BaseChart):
 
 
 class ProfitDistributionChart(BaseChart):
-    """Profit distribution chart"""
-    
+    """Show configured profit targets; these are percentages, not realized cash."""
+
     def create(self, data: Dict[str, Any], timeframe_display: str = "") -> go.Figure:
-        """Create profit distribution chart"""
         try:
-            profit_data = data.get('profit_distribution', {})
-            
-            if not profit_data:
-                return self._create_empty_chart("Profit Distribution", "No profit data available")
-            
-            fig = go.Figure()
-            
-            # Add profit bars
-            scenarios = list(profit_data.keys())
-            profits = list(profit_data.values())
-            
-            fig.add_trace(go.Bar(
-                x=scenarios,
-                y=profits,
-                name='Profit',
+            targets = data.get('profit_targets', [])
+            if len(targets) == 0:
+                return self._create_empty_chart("Profit Targets", "No target data available")
+            fig = go.Figure(go.Bar(
+                x=[f"Rung {i + 1}" for i in range(len(targets))],
+                y=targets,
+                name='Target profit (%)',
                 marker_color=self.colors['success'],
-                hovertemplate=self._create_hover_template('kpi')
+                hovertemplate='<b>%{x}</b><br>Target: %{y:.2f}%<extra></extra>',
             ))
-            
-            return self._apply_common_layout(fig, f"Profit Distribution ({timeframe_display})")
-            
+            self._apply_common_layout(fig, f"Profit Targets ({timeframe_display})")
+            fig.update_yaxes(title_text='Target profit (%)', ticksuffix='%')
+            return fig
         except Exception as e:
-            return self._create_error_chart("Profit Distribution", str(e))
+            return self._create_error_chart("Profit Targets", str(e))
 
 
 class RiskReturnProfileChart(BaseChart):
