@@ -13,7 +13,7 @@ class ChartContractTests(unittest.TestCase):
         return kind()
 
     def test_targets_are_percentages_not_realized_dollars(self):
-        fig = self.chart(ProfitDistributionChart).create({'actual_profits': np.array([2., 5.])})
+        fig = self.chart(ProfitDistributionChart).create({'profit_targets': np.array([2., 5.]), 'actual_profits': np.array([3., 7.])})
         self.assertEqual(list(fig.data[0].y), [2., 5.])
         self.assertEqual(fig.data[0].name, 'Target profit (%)')
         self.assertIn('%{y:.2f}%', fig.data[0].hovertemplate)

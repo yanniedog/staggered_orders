@@ -343,7 +343,7 @@ class ProfitDistributionChart(BaseChart):
 
     def create(self, data: Dict[str, Any], timeframe_display: str = "") -> go.Figure:
         try:
-            targets = data.get('actual_profits', [])
+            targets = data.get('profit_targets', [])
             if len(targets) == 0:
                 return self._create_empty_chart("Profit Targets", "No target data available")
             fig = go.Figure(go.Bar(
